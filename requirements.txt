@@ -1,0 +1,6 @@
+aioredis
+fastapi
+geoip2
+motor
+orjson
+uvicorn
