@@ -16,10 +16,10 @@ class Status:
     mode: Mode
     map_id: int
 
-    @staticmethod
+    @classmethod
     def default(cls) -> Status:
         return Status(
-            Action.Idle,
+            Action.IDLE,
             "",
             "",
             Mods.NOMOD,

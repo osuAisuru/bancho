@@ -4,3 +4,4 @@ geoip2
 motor
 orjson
 uvicorn
+uvloop

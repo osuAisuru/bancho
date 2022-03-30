@@ -9,17 +9,23 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.requests import Request
 from fastapi.responses import ORJSONResponse
 from fastapi.responses import Response
+from motor.motor_asyncio import AsyncIOMotorClient
 from starlette.middleware.base import RequestResponseEndpoint
 
 import app.config
 import app.state
+import app.usecases
 import log
 
 
 def init_events(asgi_app: FastAPI) -> None:
     @asgi_app.on_event("startup")
     async def on_startup() -> None:
+        app.state.services.client = AsyncIOMotorClient(str(app.config.MONGODB_DSN))
+        app.state.services.database = app.state.services.client.aisuru
+
         await app.state.services.redis.initialize()
+        await app.state.sessions.populate_sessions()
 
         log.info("Bancho is running!")
 
@@ -60,10 +66,12 @@ def init_bancho() -> FastAPI:
 
     init_events(asgi_app)
 
-    import app.bancho
+    import app.api
 
     for subdomain in ("c", "c4", "ce"):
-        asgi_app.host(f"{subdomain}.{app.config.SERVER_DOMAIN}", app.bancho.router)
+        asgi_app.host(f"{subdomain}.{app.config.SERVER_DOMAIN}", app.api.router)
+
+    return asgi_app
 
 
 asgi_app = init_bancho()

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from enum import Enum
+from enum import IntEnum
 from functools import cached_property
 
 from app.constants.mods import Mods
@@ -17,7 +17,7 @@ mode_str = (
 )
 
 
-class Mode(Enum):
+class Mode(IntEnum):
     STD = 0
     TAIKO = 1
     CATCH = 2

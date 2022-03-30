@@ -2,21 +2,30 @@ from __future__ import annotations
 
 import time
 from typing import Optional
+from typing import Union
 from uuid import uuid4
 
+import app.packets
+import app.state
 import app.usecases
 import app.utils
+import log
 from app.constants.mode import Mode
 from app.constants.status import Status
 from app.models import DBUser
 from app.objects.user import User
-from app.state.services import database
+from app.state.services import Country
 from app.state.services import Geolocation
 from app.typing import LoginData
 
 
-async def create(login_data: LoginData, geolocation: Geolocation) -> Optional[User]:
-    user = database.find_one(
+async def create_session(
+    login_data: LoginData,
+    geolocation: Geolocation,
+) -> Optional[User]:
+    user_collection = app.state.services.database.users
+
+    user = await user_collection.find_one(
         {"safe_name": app.utils.make_safe_name(login_data["username"])},
     )
     if not user:
@@ -33,7 +42,7 @@ async def create(login_data: LoginData, geolocation: Geolocation) -> Optional[Us
         )
 
     return User(
-        **db_user.dict(),
+        **db_user.dict(exclude={"country"}),
         geolocation=geolocation,
         osu_version=login_data["osu_version"],
         utc_offset=login_data["utc_offset"],
@@ -42,10 +51,72 @@ async def create(login_data: LoginData, geolocation: Geolocation) -> Optional[Us
         token=str(uuid4()),
         queue=bytearray(),
         stats=stats,
+        channels=[],
         spectating=None,
         spectators=[],
     )
 
 
+KWARGS_VALUES = Union[int, str]
+
+
+def _parse_kwargs(
+    kwargs: dict[str, KWARGS_VALUES],
+) -> Optional[tuple[str, KWARGS_VALUES]]:
+    for kwarg in ("id", "name", "token"):
+        if val := kwargs.pop(kwarg, None):
+            return (kwarg, val)
+
+    return None
+
+
 async def fetch(**kwargs) -> Optional[User]:
-    ...
+    if not (kwarg := _parse_kwargs(kwargs)):
+        raise ValueError("incorrect kwargs passed to user.fetch()")
+
+    key, val = kwarg
+    for user in app.state.sessions.users:
+        if getattr(user, key) == val:
+            return user
+
+    if kwargs.get("db"):
+        user_collection = app.state.services.database.users
+        user = await user_collection.find_one(
+            {key: val},
+        )
+        if not user:
+            return None
+
+        db_user = DBUser(**user)
+
+        return User(
+            **db_user.dict(exclude={"country"}),
+            geolocation=Geolocation(country=Country.from_iso(db_user.country)),
+            osu_version="",
+            utc_offset=0,
+            status=Status.default(),
+            login_time=int(time.time()),
+            token="",
+            queue=bytearray(),
+            stats={},  # TODO
+            channels=[],
+            spectating=None,
+            spectators=[],
+        )
+
+
+def logout(user: User) -> None:
+    user.token = ""
+
+    if host := user.spectating:
+        ...  # host.remove_spectator(user)
+
+    for channel in user.channels:
+        channel.remove_user(user)
+
+    app.state.sessions.users.remove(user)
+
+    if not user.restricted:
+        app.state.sessions.users.enqueue(app.packets.logout(user.id))
+
+    log.info(f"{user} logged out.")

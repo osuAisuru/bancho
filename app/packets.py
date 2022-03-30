@@ -95,14 +95,11 @@ class PacketArray:
 
         self._split_data()
 
-    def __iter__(self) -> Iterator[Packet]:
-        return self.packets.__iter__()
+    def __iter__(self) -> Iterator[tuple[Packet, PacketHandler]]:
+        for packet in self.packets:
+            handler = self.packet_map[packet.packet_id]
 
-    def __next__(self) -> tuple[Packet, PacketHandler]:
-        packet = self.packets.__next__()
-        handler = self.packet_map[packet.packet_id]
-
-        return packet, handler
+            yield packet, handler
 
     def _split_data(self) -> None:
         while self.data:
@@ -251,7 +248,6 @@ def bancho_privileges(priv: int) -> bytearray:
     return packet.serialize()
 
 
-@cache
 def bot_presence(user: User) -> bytearray:
     packet = Packet.from_id(Packets.CHO_USER_PRESENCE)
 
@@ -259,7 +255,7 @@ def bot_presence(user: User) -> bytearray:
     packet += String.write(user.name)
     packet += u8.write(24)  # utc offset
     packet += u8.write(user.geolocation.country.code)
-    packet += u8.write(user.bancho_priv)
+    packet += u8.write(user.bancho_privileges)
     packet += f32.write(user.geolocation.long)
     packet += f32.write(user.geolocation.lat)
     packet += i32.write(0)  # rank
@@ -277,7 +273,7 @@ def user_presence(user: User) -> bytearray:
     packet += String.write(user.name)
     packet += u8.write(user.utc_offset + 24)
     packet += u8.write(user.geolocation.country.code)
-    packet += u8.write(user.bancho_priv | (user.status.mode.as_vn << 5))
+    packet += u8.write(user.bancho_privileges | (user.status.mode.as_vn << 5))
     packet += f32.write(user.geolocation.long)
     packet += f32.write(user.geolocation.lat)
     packet += i32.write(user.current_stats.global_rank)
@@ -285,7 +281,6 @@ def user_presence(user: User) -> bytearray:
     return packet.serialize()
 
 
-@cache
 def bot_stats(user: User) -> bytearray:
     packet = Packet.from_id(Packets.CHO_USER_STATS)
 
@@ -459,6 +454,12 @@ def channel_kick(channel: str) -> bytearray:
 @cache
 def version_update_forced() -> bytearray:
     packet = Packet.from_id(Packets.CHO_VERSION_UPDATE_FORCED)
+    return packet.serialize()
+
+
+@cache
+def user_restricted() -> bytearray:
+    packet = Packet.from_id(Packets.CHO_ACCOUNT_RESTRICTED)
     return packet.serialize()
 
 

@@ -5,9 +5,12 @@ import logging
 import os
 
 import uvicorn
+import uvloop
 
 import app.config
 import log
+
+uvloop.install()
 
 
 def main() -> int:

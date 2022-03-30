@@ -11,8 +11,8 @@ import app.config
 import app.state
 from app.constants.countries import OSU_GEOLOC
 
-client = AsyncIOMotorClient(str(app.config.MONGODB_DSN))
-database = client.aisuru
+client: AsyncIOMotorClient = None
+database = None
 
 redis: aioredis.Redis = aioredis.from_url(str(app.config.REDIS_DSN))
 geoloc = geoloc_database.Reader("ext/geoloc.mmdb")

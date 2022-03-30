@@ -44,6 +44,7 @@ class Ansi(
 def _log(content: str, log_type: str, colour: Ansi = Ansi.WHITE) -> None:
     """Logs a message to stdout with a given Ansi colour."""
 
+    log_type = log_type.rjust(5)
     sys.stdout.write(
         f"\033[37m{Ansi.GRAY!r}\033[49m[{formatted_time()} - {log_type}]"
         f"\033[37m{colour!r}\033[49m {content}"
@@ -65,7 +66,7 @@ def error(message: str) -> None:
 
 
 def warning(message: str) -> None:
-    return _log(message, "WARNING", Ansi.LYELLOW)
+    return _log(message, "WARN", Ansi.LYELLOW)
 
 
 TIME_ORDER_SUFFIXES = ["ns", "μs", "ms", "s"]

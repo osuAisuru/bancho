@@ -14,6 +14,7 @@ class DBUser(BaseModel):
     register_time: int
     latest_activity: int
     email: str
+    country: str
 
     privileges: Privileges
     silence_end: int
