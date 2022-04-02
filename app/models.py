@@ -2,7 +2,13 @@ from __future__ import annotations
 
 from pydantic import BaseModel
 
+from app.constants.action import Action
 from app.constants.privileges import Privileges
+from app.typing import i32
+from app.typing import Message
+from app.typing import String
+from app.typing import u32
+from app.typing import u8
 
 
 class DBUser(BaseModel):
@@ -34,3 +40,20 @@ class DBStats(BaseModel):
 
     playcount: int
     playtime: int
+
+
+class ChangeActionStructure:
+    action: u8
+    info_text: String
+    map_md5: String
+    mods: u32
+    mode: u8
+    map_id: i32
+
+
+class SendMessageStructure:
+    message: Message
+
+
+class StartSpectatingStructure:
+    target_id: i32

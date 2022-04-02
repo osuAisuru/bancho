@@ -78,7 +78,7 @@ class ChannelList(list["Channel"]):
 
     def __contains__(self, o: Union[Channel, str]) -> bool:
         if isinstance(o, str):
-            return o in (chan.name for chan in self)
+            return o in (chan.real_name for chan in self)
         else:
             return super().__contains__(o)
 
@@ -105,7 +105,7 @@ class ChannelList(list["Channel"]):
 
     def get_by_name(self, name: str) -> Optional[Channel]:
         for channel in self:
-            if channel.name == name:
+            if channel.real_name == name:
                 return channel
 
     def append(self, channel: Channel) -> None:

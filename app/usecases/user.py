@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import copy
 import time
 from typing import Optional
 from typing import Union
@@ -32,6 +33,8 @@ async def create_session(
         return None
 
     db_user = DBUser(**user)
+    db_dict = db_user.__dict__
+    db_dict.pop("country")
 
     stats = {}
     for mode in Mode:
@@ -42,7 +45,7 @@ async def create_session(
         )
 
     return User(
-        **db_user.dict(exclude={"country"}),
+        **db_dict,
         geolocation=geolocation,
         osu_version=login_data["osu_version"],
         utc_offset=login_data["utc_offset"],
@@ -54,6 +57,8 @@ async def create_session(
         channels=[],
         spectating=None,
         spectators=[],
+        stealth=False,
+        in_lobby=False,
     )
 
 
@@ -88,9 +93,11 @@ async def fetch(**kwargs) -> Optional[User]:
             return None
 
         db_user = DBUser(**user)
+        db_dict = copy.copy(db_user.__dict__)
+        db_dict.pop("country")
 
         return User(
-            **db_user.dict(exclude={"country"}),
+            **db_dict,
             geolocation=Geolocation(country=Country.from_iso(db_user.country)),
             osu_version="",
             utc_offset=0,
@@ -102,6 +109,8 @@ async def fetch(**kwargs) -> Optional[User]:
             channels=[],
             spectating=None,
             spectators=[],
+            stealth=False,
+            in_lobby=False,
         )
 
 
@@ -109,7 +118,7 @@ def logout(user: User) -> None:
     user.token = ""
 
     if host := user.spectating:
-        ...  # host.remove_spectator(user)
+        host.remove_spectator(user)
 
     for channel in user.channels:
         channel.remove_user(user)

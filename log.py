@@ -4,6 +4,7 @@ import sys
 import time
 from enum import IntEnum
 from functools import cache
+from typing import Optional
 from typing import Union
 
 import app.config
@@ -52,21 +53,37 @@ def _log(content: str, log_type: str, colour: Ansi = Ansi.WHITE) -> None:
     )
 
 
-def debug(message: str) -> None:
+def debug(message: str, file: Optional[str] = None) -> None:
     if app.config.DEBUG:
-        return _log(message, "DEBUG", Ansi.LGREEN)
+        _log(message, "DEBUG", Ansi.LGREEN)
+
+        if file:
+            with open(file, "a+") as f:
+                f.write(f"[{formatted_time()} - DEBUG] {message}\n")
 
 
-def info(message: str) -> None:
-    return _log(message, "INFO", Ansi.LBLUE)
+def info(message: str, file: Optional[str] = None) -> None:
+    _log(message, "INFO", Ansi.LBLUE)
+
+    if file:
+        with open(file, "a+") as f:
+            f.write(f"[{formatted_time()} - INFO] {message}\n")
 
 
-def error(message: str) -> None:
-    return _log(message, "ERROR", Ansi.LRED)
+def error(message: str, file: Optional[str] = None) -> None:
+    _log(message, "ERROR", Ansi.LRED)
+
+    if file:
+        with open(file, "a+") as f:
+            f.write(f"[{formatted_time()} - ERROR] {message}\n")
 
 
-def warning(message: str) -> None:
-    return _log(message, "WARN", Ansi.LYELLOW)
+def warning(message: str, file: Optional[str] = None) -> None:
+    _log(message, "WARN", Ansi.LYELLOW)
+
+    if file:
+        with open(file, "a+") as f:
+            f.write(f"[{formatted_time()} - WARN] {message}\n")
 
 
 TIME_ORDER_SUFFIXES = ["ns", "μs", "ms", "s"]

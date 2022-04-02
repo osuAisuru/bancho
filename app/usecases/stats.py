@@ -33,5 +33,5 @@ async def fetch(user_id: int, country: str, mode: Mode) -> Stats:
     return Stats(
         global_rank=global_rank,
         country_rank=country_rank,
-        **db_stats.dict(),
+        **db_stats.__dict__,
     )

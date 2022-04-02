@@ -23,6 +23,8 @@ if TYPE_CHECKING:
 import app.usecases
 import app.packets
 import app.state
+import app.models
+import app.utils
 from app.state.services import Geolocation
 from app.typing import LoginData, Message, PacketHandler
 
@@ -242,10 +244,13 @@ def register_packet(_packet: app.packets.Packets, allow_restricted: bool = False
             structure = handler.__annotations__.get("packet_data")
 
             if structure:
-                data = structure()
+                structure_class = app.utils.get_class_from_module(structure)
 
-                for field, _type in structure.__annotations__.items():
-                    data.__dict__[field] = _type.read(packet)
+                data = structure_class()
+
+                for field, _type in structure_class.__annotations__.items():
+                    _type_class = app.utils.get_class_from_module(_type)
+                    data.__dict__[field] = _type_class.read(packet)
 
                 return await handler(
                     user,
@@ -265,6 +270,68 @@ def register_packet(_packet: app.packets.Packets, allow_restricted: bool = False
     return decorator
 
 
+@register_packet(app.packets.Packets.OSU_PING, allow_restricted=True)
+async def ping(user: "User") -> None:
+    pass
+
+
+@register_packet(app.packets.Packets.OSU_CHANGE_ACTION, allow_restricted=True)
+async def change_action(
+    user: "User",
+    packet_data: app.models.ChangeActionStructure,
+) -> None:
+    user.update_status(packet_data)
+
+
+IGNORED_CHANNELS = ["#highlight", "#userlog"]
+
+
+@register_packet(app.packets.Packets.OSU_SEND_PUBLIC_MESSAGE)
+async def send_public_message(
+    user: "User",
+    packet_data: app.models.SendMessageStructure,
+) -> None:
+    if user.silenced:
+        log.warning(f"{user} tried to send a message while silenced")
+        return
+
+    msg = packet_data.message.content
+    if not msg:
+        return
+
+    recipient = packet_data.message.recipient_username
+    if recipient in IGNORED_CHANNELS:
+        return
+
+    if recipient == "#spectator":
+        if user.spectating:
+            spec_id = user.spectating.id
+        else:
+            spec_id = user.id
+
+        target_channel = app.state.sessions.channels[f"#spec_{spec_id}"]
+    elif recipient == "#multiplayer":
+        return  # TODO
+    else:
+        target_channel = app.state.sessions.channels[recipient]
+
+    if not target_channel:
+        log.warning(f"{user} tried to write to non-existant channel {recipient}")
+
+    if user not in target_channel:
+        log.warning(f"{user} tried to write in {recipient} without being in it")
+
+    if not target_channel.has_permission(user):
+        log.warning(f"{user} tried to write in {recipient} without permission")
+
+    # TODO: commands
+
+    target_channel.send(msg, user)
+    user.update_activity()
+
+    log.info(f"{user} sent a message to {recipient}: {msg}", file="logs/chat.log")
+
+
 @register_packet(app.packets.Packets.OSU_LOGOUT, allow_restricted=True)
 async def logout(user: "User") -> None:
     if int(time.time()) - user.login_time < 1:
@@ -272,3 +339,60 @@ async def logout(user: "User") -> None:
 
     app.usecases.user.logout(user)
     await user.update_activity()
+
+
+@register_packet(app.packets.Packets.OSU_REQUEST_STATUS_UPDATE, allow_restricted=True)
+async def request_status_update(user: "User") -> None:
+    user.enqueue(app.packets.user_stats(user))
+
+
+@register_packet(app.packets.Packets.OSU_START_SPECTATING)
+async def start_spectating(
+    user: "User",
+    packet_data: app.models.StartSpectatingStructure,
+) -> None:
+    if not (host := await app.usecases.user.fetch(id=packet_data.target_id)):
+        log.warning(
+            f"{user} tried to spectate non-existent user ID {packet_data.target_id}",
+        )
+        return
+
+    if existing_host := user.spectating:
+        if existing_host == host:
+            if not user.stealth:
+                host.enqueue(app.packets.host_spectator_joined(user.id))
+
+                fellow_joined = app.packets.spectator_joined(user.id)
+                for spec in host.spectators:
+                    if spec is not user:
+                        user.enqueue(fellow_joined)
+
+            return
+
+        existing_host.remove_spectator(user)
+
+    host.add_spectator(user)
+
+
+@register_packet(app.packets.Packets.OSU_STOP_SPECTATING)
+async def stop_spectating(user: "User") -> None:
+    if not user.spectating:
+        log.warning(
+            f"{user} tried to stop spectating when they aren't spectating anyone",
+        )
+
+    user.spectating.remove_spectator(user)
+
+
+@register_packet(app.packets.Packets.OSU_SPECTATE_FRAMES)
+async def spectate_frames(
+    user: "User",
+    packet_data: app.models.SpectateFramesStructure,
+) -> None:
+    if not user.spectating:
+        log.warning(
+            f"{user} tried to spectate frames when they aren't spectating anyone",
+        )
+        return
+
+    # user.spectating.enqueue(app.packets.spectate_frames(user.id, packet_data.frames))

@@ -228,6 +228,12 @@ class Packets(IntEnum):
 
 
 @cache
+def pong() -> bytearray:
+    packet = Packet.from_id(Packets.CHO_PONG)
+    return packet.serialize()
+
+
+@cache
 def user_id(id: int) -> bytearray:
     packet = Packet.from_id(Packets.CHO_USER_ID)
     packet += i32.write(id)
@@ -447,6 +453,13 @@ def channel_info(channel: Channel) -> bytearray:
 @cache
 def channel_kick(channel: str) -> bytearray:
     packet = Packet.from_id(Packets.CHO_CHANNEL_KICK)
+    packet += String.write(channel)
+    return packet.serialize()
+
+
+@cache
+def channel_join(channel: str) -> bytearray:
+    packet = Packet.from_id(Packets.CHO_CHANNEL_JOIN_SUCCESS)
     packet += String.write(channel)
     return packet.serialize()
 

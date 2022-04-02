@@ -272,3 +272,118 @@ class OsuChannel(osuType):
         data += i32.write(self.player_count)
 
         return data
+
+
+class ReplayFrame(osuType):
+    def __init__(
+        self,
+        button_state: u8,
+        taiko_byte: u8,
+        x: f32,
+        y: f32,
+        time: i32,
+    ):
+        self.button_state = button_state
+        self.taiko_byte = taiko_byte
+        self.x = x
+        self.y = y
+        self.time = time
+
+    @classmethod
+    def read(cls, packet: Packet) -> ReplayFrame:
+        return ReplayFrame(
+            button_state=u8.read(packet),
+            taiko_byte=u8.read(packet),
+            x=f32.read(packet),
+            y=f32.read(packet),
+            time=i32.read(packet),
+        )
+
+    @classmethod
+    def write(
+        cls,
+        button_state: u8,
+        taiko_byte: u8,
+        x: f32,
+        y: f32,
+        time: i32,
+    ):
+        frame = ReplayFrame(button_state, taiko_byte, x, y, time)
+
+        return frame.serialize()
+
+    def serialize(self) -> bytearray:
+        data = bytearray(u8.write(self.button_state))
+
+        data += u8.write(self.taiko_byte)
+        data += u8.write(self.taiko_byte)
+        data += f32.write(self.x)
+        data += f32.write(self.y)
+        data += i32.write(self.time)
+
+        return data
+
+
+class ReplayFrameBundle(osuType):
+    def __init__(
+        self,
+        frames: list[ReplayFrame],
+        score_frame: ScoreFrame,
+        action: ReplayFrame,
+        extra: i32,  # ?
+        sequence: u16,  # ?
+        raw_data: bytearray,
+    ) -> None:
+        self.frames = frames
+        self.score_frame = score_frame
+        self.action = action
+        self.extra = extra
+        self.sequence = sequence
+        self.raw_data = raw_data
+
+    @classmethod
+    def read(cls, packet: Packet) -> ReplayFrameBundle:
+        raw_data = packet.data[: packet.length]  # slice to copy
+
+        extra = i32.read(packet)
+        frame_count = u16.read(packet)
+        frames = [ReplayFrame.read() for _ in range(frame_count)]
+        action = ReplayAction(u8.read(packet))
+        score_frame = ReplayFrame.read(packet)
+        sequence = u16.read(packet)
+
+        return ReplayFrameBundle(frames, score_frame, action, extra, sequence, raw_data)
+
+    @classmethod
+    def write(
+        cls,
+        frames: list[ReplayFrame],
+        score_frame: ScoreFrame,
+        action: ReplayFrame,
+        extra: i32,  # ?
+        sequence: u16,  # ?
+        raw_data: bytearray,
+    ) -> bytearray:
+        frame_bundle = ReplayFrameBundle(
+            frames,
+            score_frame,
+            action,
+            extra,
+            sequence,
+            raw_data,
+        )
+
+        return frame_bundle.serialize()
+
+    def serialize(self) -> bytearray:
+        data = bytearray(i32.write(self.extra))
+
+        data += u16.write(len(self.frames))
+        for frame in self.frames:
+            data += frame.serialize()
+
+        data += self.score_frame.serialize()
+        data += u16.write(self.sequence)
+        data += u8.write(self.action.value)
+
+        return data
