@@ -223,9 +223,9 @@ class Message(osuType):
     ) -> bytearray:
         message = Message(sender_username, content, recipient_username, sender_id)
 
-        return message.serialize()
+        return message.serialise()
 
-    def serialize(self) -> bytearray:
+    def serialise(self) -> bytearray:
         data = bytearray(String.write(self.sender_username))
 
         data += String.write(self.content)
@@ -263,9 +263,9 @@ class OsuChannel(osuType):
     ) -> bytearray:
         channel = OsuChannel(name, topic, player_count)
 
-        return channel.serialize()
+        return channel.serialise()
 
-    def serialize(self) -> bytearray:
+    def serialise(self) -> bytearray:
         data = bytearray(String.write(self.name))
 
         data += String.write(self.topic)
@@ -310,9 +310,9 @@ class ReplayFrame(osuType):
     ):
         frame = ReplayFrame(button_state, taiko_byte, x, y, time)
 
-        return frame.serialize()
+        return frame.serialise()
 
-    def serialize(self) -> bytearray:
+    def serialise(self) -> bytearray:
         data = bytearray(u8.write(self.button_state))
 
         data += u8.write(self.taiko_byte)
@@ -373,16 +373,16 @@ class ReplayFrameBundle(osuType):
             raw_data,
         )
 
-        return frame_bundle.serialize()
+        return frame_bundle.serialise()
 
-    def serialize(self) -> bytearray:
+    def serialise(self) -> bytearray:
         data = bytearray(i32.write(self.extra))
 
         data += u16.write(len(self.frames))
         for frame in self.frames:
-            data += frame.serialize()
+            data += frame.serialise()
 
-        data += self.score_frame.serialize()
+        data += self.score_frame.serialise()
         data += u16.write(self.sequence)
         data += u8.write(self.action.value)
 

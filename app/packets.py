@@ -67,7 +67,7 @@ class Packet:
     def write(self, data: bytearray) -> None:
         self.data += data
 
-    def serialize(self) -> bytearray:
+    def serialise(self) -> bytearray:
         return_data = bytearray()
 
         return_data += i16.write(self.packet_id)
@@ -230,28 +230,28 @@ class Packets(IntEnum):
 @cache
 def pong() -> bytearray:
     packet = Packet.from_id(Packets.CHO_PONG)
-    return packet.serialize()
+    return packet.serialise()
 
 
 @cache
 def user_id(id: int) -> bytearray:
     packet = Packet.from_id(Packets.CHO_USER_ID)
     packet += i32.write(id)
-    return packet.serialize()
+    return packet.serialise()
 
 
 @cache
 def protocol_version(version: int) -> bytearray:
     packet = Packet.from_id(Packets.CHO_PROTOCOL_VERSION)
     packet += i32.write(version)
-    return packet.serialize()
+    return packet.serialise()
 
 
 @cache
 def bancho_privileges(priv: int) -> bytearray:
     packet = Packet.from_id(Packets.CHO_PRIVILEGES)
     packet += i32.write(priv)
-    return packet.serialize()
+    return packet.serialise()
 
 
 def bot_presence(user: User) -> bytearray:
@@ -266,7 +266,7 @@ def bot_presence(user: User) -> bytearray:
     packet += f32.write(user.geolocation.lat)
     packet += i32.write(0)  # rank
 
-    return packet.serialize()
+    return packet.serialise()
 
 
 def user_presence(user: User) -> bytearray:
@@ -284,7 +284,7 @@ def user_presence(user: User) -> bytearray:
     packet += f32.write(user.geolocation.lat)
     packet += i32.write(user.current_stats.global_rank)
 
-    return packet.serialize()
+    return packet.serialise()
 
 
 def bot_stats(user: User) -> bytearray:
@@ -304,7 +304,7 @@ def bot_stats(user: User) -> bytearray:
     packet += i32.write(0)  # rank
     packet += i16.write(0)  # pp
 
-    return packet.serialize()
+    return packet.serialise()
 
 
 def user_stats(user: User) -> bytearray:
@@ -335,53 +335,53 @@ def user_stats(user: User) -> bytearray:
     packet += i32.write(stats.global_rank)
     packet += i16.write(pp)
 
-    return packet.serialize()
+    return packet.serialise()
 
 
 @cache
 def notification(msg: str) -> bytearray:
     packet = Packet.from_id(Packets.CHO_NOTIFICATION)
     packet += String.write(msg)
-    return packet.serialize()
+    return packet.serialise()
 
 
 @cache
 def channel_info_end() -> bytearray:
     packet = Packet.from_id(Packets.CHO_CHANNEL_INFO_END)
-    return packet.serialize()
+    return packet.serialise()
 
 
 @cache
 def restart_server(time: int) -> bytearray:
     packet = Packet.from_id(Packets.CHO_RESTART)
     packet += i32.write(time)
-    return packet.serialize()
+    return packet.serialise()
 
 
 @cache
 def menu_icon() -> bytearray:
     packet = Packet.from_id(Packets.CHO_MAIN_MENU_ICON)
     packet += String.write("|")  # TODO: implement
-    return packet.serialize()
+    return packet.serialise()
 
 
 def friends_list(friends_list: set[int]) -> bytearray:
     packet = Packet.from_id(Packets.CHO_FRIENDS_LIST)
     packet += i32_list.write(friends_list)
-    return packet.serialize()
+    return packet.serialise()
 
 
 @cache
 def silence_end(time: int) -> bytearray:
     packet = Packet.from_id(Packets.CHO_SILENCE_END)
     packet += i32.write(time)
-    return packet.serialize()
+    return packet.serialise()
 
 
 def send_message(message: Message) -> bytearray:
     packet = Packet.from_id(Packets.CHO_SEND_MESSAGE)
-    packet += message.serialize()
-    return packet.serialize()
+    packet += message.serialise()
+    return packet.serialise()
 
 
 @cache
@@ -391,89 +391,89 @@ def logout(user_id: int) -> bytearray:
     packet += i32.write(user_id)
     packet += u8.write(0)  # ?
 
-    return packet.serialize()
+    return packet.serialise()
 
 
 @cache
 def block_dm() -> bytearray:
     packet = Packet.from_id(Packets.CHO_USER_DM_BLOCKED)
-    return packet.serialize()
+    return packet.serialise()
 
 
 @cache
 def spectator_joined(user_id: int) -> bytearray:
     packet = Packet.from_id(Packets.CHO_FELLOW_SPECTATOR_JOINED)
     packet += i32.write(user_id)
-    return packet.serialize()
+    return packet.serialise()
 
 
 @cache
 def host_spectator_joined(user_id: int) -> bytearray:
     packet = Packet.from_id(Packets.CHO_SPECTATOR_JOINED)
     packet += i32.write(user_id)
-    return packet.serialize()
+    return packet.serialise()
 
 
 @cache
 def spectator_left(user_id: int) -> bytearray:
     packet = Packet.from_id(Packets.CHO_FELLOW_SPECTATOR_LEFT)
     packet += i32.write(user_id)
-    return packet.serialize()
+    return packet.serialise()
 
 
 @cache
 def host_spectator_left(user_id: int) -> bytearray:
     packet = Packet.from_id(Packets.CHO_SPECTATOR_LEFT)
     packet += i32.write(user_id)
-    return packet.serialize()
+    return packet.serialise()
 
 
 def spectate_frames(frames: bytes) -> bytearray:
     packet = Packet.from_id(Packets.CHO_SPECTATE_FRAMES)
     packet += frames
-    return packet.serialize()
+    return packet.serialise()
 
 
 @cache
 def join_channel(channel: str) -> bytearray:
     packet = Packet.from_id(Packets.CHO_CHANNEL_JOIN_SUCCESS)
     packet += String.write(channel)
-    return packet.serialize()
+    return packet.serialise()
 
 
 def channel_info(channel: Channel) -> bytearray:
     packet = Packet.from_id(Packets.CHO_CHANNEL_INFO)
 
     channel = OsuChannel(channel.name, channel.topic, channel.user_count)
-    packet += channel.serialize()
+    packet += channel.serialise()
 
-    return packet.serialize()
+    return packet.serialise()
 
 
 @cache
 def channel_kick(channel: str) -> bytearray:
     packet = Packet.from_id(Packets.CHO_CHANNEL_KICK)
     packet += String.write(channel)
-    return packet.serialize()
+    return packet.serialise()
 
 
 @cache
 def channel_join(channel: str) -> bytearray:
     packet = Packet.from_id(Packets.CHO_CHANNEL_JOIN_SUCCESS)
     packet += String.write(channel)
-    return packet.serialize()
+    return packet.serialise()
 
 
 @cache
 def version_update_forced() -> bytearray:
     packet = Packet.from_id(Packets.CHO_VERSION_UPDATE_FORCED)
-    return packet.serialize()
+    return packet.serialise()
 
 
 @cache
 def user_restricted() -> bytearray:
     packet = Packet.from_id(Packets.CHO_ACCOUNT_RESTRICTED)
-    return packet.serialize()
+    return packet.serialise()
 
 
 # TODO: match packets
