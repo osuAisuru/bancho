@@ -363,9 +363,9 @@ def restart_server(time: int) -> bytearray:
 
 
 @cache
-def menu_icon() -> bytearray:
+def menu_icon(icon_url: str, click_url: str) -> bytearray:
     packet = Packet.from_id(Packets.CHO_MAIN_MENU_ICON)
-    packet += String.write("|")  # TODO: implement
+    packet += String.write(f"{icon_url}|{click_url}")  # TODO: implement
     return packet.serialise()
 
 
@@ -490,6 +490,13 @@ def user_restricted() -> bytearray:
 @lru_cache(maxsize=8)
 def target_silenced(target_name: str) -> bytearray:
     packet = Packet.from_id(Packets.CHO_TARGET_IS_SILENCED)
+    packet += Message.write("", "", target_name, 0)
+    return packet.serialise()
+
+
+@lru_cache(maxsize=8)
+def private_message_blocked(target_name: str) -> bytearray:
+    packet = Packet.from_id(Packets.CHO_USER_DM_BLOCKED)
     packet += Message.write("", "", target_name, 0)
     return packet.serialise()
 

@@ -13,5 +13,8 @@ SERVER_PORT: int = cfg("SERVER_PORT", cast=int)
 
 DEBUG: bool = cfg("DEBUG", cast=bool)
 
+MAIN_MENU_ICON_URL: str = cfg("MAIN_MENU_ICON_URL")
+MAIN_MENU_CLICK_URL: str = cfg("MAIN_MENU_CLICK_URL")
+
 # do NOT change
 VERSION = "0.1.0"

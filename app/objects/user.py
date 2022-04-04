@@ -46,6 +46,7 @@ class User:
 
     stats: dict[Mode, Stats]
     friends: list[int]
+    blocked: list[int]
 
     channels: list[Channel]
 
@@ -54,6 +55,7 @@ class User:
 
     stealth: bool
     in_lobby: bool
+    friend_only_dms: bool
 
     def __repr__(self) -> str:
         return f"<{self.name} ({self.id})>"

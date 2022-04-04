@@ -28,6 +28,7 @@ class DBUser(BaseModel):
     silence_end: int
 
     friends: list[int]
+    blocked: list[int]
 
 
 class DBStats(BaseModel):
@@ -79,3 +80,7 @@ class StatsRequestStructure:
 
 class UserPresenceRequestStructure:
     user_ids: i32_list
+
+
+class ToggleDMStructure:
+    value: i32

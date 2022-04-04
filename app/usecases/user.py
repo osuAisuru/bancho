@@ -59,6 +59,7 @@ async def create_session(
         spectators=[],
         stealth=False,
         in_lobby=False,
+        friend_only_dms=login_data["pm_private"],
     )
 
 
@@ -111,6 +112,7 @@ async def fetch(**kwargs) -> Optional[User]:
             spectators=[],
             stealth=False,
             in_lobby=False,
+            friend_only_dms=False,
         )
 
 

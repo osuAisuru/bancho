@@ -24,6 +24,7 @@ import app.usecases
 import app.packets
 import app.state
 import app.models
+import app.config
 import app.utils
 from app.state.services import Geolocation
 from app.typing import LoginData, Message, PacketHandler
@@ -175,7 +176,10 @@ async def login(
                 target.enqueue(channel_info_packet)
 
     data += app.packets.channel_info_end()
-    data += app.packets.menu_icon()
+    data += app.packets.menu_icon(
+        app.config.MAIN_MENU_ICON_URL,
+        app.config.MAIN_MENU_CLICK_URL,
+    )
     data += app.packets.friends_list(user.friends)
     data += app.packets.silence_end(user.remaining_silence)
 
@@ -440,7 +444,21 @@ async def private_message(
         )
         return
 
-    # TODO: blocked users, private dms
+    if user.id in target.blocked:
+        user.enqueue(app.packets.private_message_blocked(target_name))
+
+        log.warning(
+            f"{user} tried to send a message to {target_name} but they are blocked",
+        )
+        return
+
+    if target.friend_only_dms and user.id not in target.friends:
+        user.enqueue(app.packets.private_message_blocked(target_name))
+
+        log.warning(
+            f"{user} tried to send a message to non-mutual {target_name} but they have friend only DMs enabled",
+        )
+        return
 
     if target.silenced:
         user.enqueue(app.packets.target_silenced(target_name))
@@ -485,7 +503,9 @@ async def add_friend(
     if target is app.state.sessions.bot:
         return
 
-    # TODO: blocked users
+    if user.id in target.blocked:
+        log.warning(f"{user} tried to add {target}, but they are blocked")
+        return
 
     await user.update_activity()
     await user.add_friend(target)
@@ -564,6 +584,12 @@ async def user_presence_request_all(user: "User") -> None:
         buffer += app.packets.user_presence(u)
 
     user.enqueue(buffer)
+
+
+@register_packet(app.packets.Packets.OSU_TOGGLE_BLOCK_NON_FRIEND_DMS)
+async def toggle_dms(user: "User", packet_data: app.models.ToggleDMStructure):
+    user.friend_only_dms = packet_data.value == 1
+    await user.update_activity()
 
 
 # XX: do i care about presence filter or away messages?
