@@ -3,6 +3,7 @@ from __future__ import annotations
 import time
 from dataclasses import dataclass
 from typing import Optional
+from typing import Union
 
 import app.models
 import app.packets
@@ -98,7 +99,7 @@ class User:
     def banned(self) -> bool:
         return self.privileges & Privileges.BANNED
 
-    def enqueue(self, data: bytes) -> None:
+    def enqueue(self, data: Union[bytearray, bytes]) -> None:
         self.queue += data
 
     def dequeue(self) -> Optional[bytes]:
@@ -253,3 +254,35 @@ class User:
             app.state.sessions.users.enqueue(app.packets.user_stats(self))
 
         # TODO: update to redis or smth?
+
+    async def add_friend(self, user: User) -> None:
+        if user.id in self.friends:
+            log.warning(
+                f"{self} tried to add {user} who is already in their friends list",
+            )
+            return
+
+        self.friends.append(user.id)
+        user_collection = app.state.services.database.users
+        await user_collection.update_one(
+            {"id": self.id},
+            {"$push": {"friends": user.id}},
+        )
+
+        log.info(f"{self} added {user} to their friends list")
+
+    async def remove_friend(self, user: User) -> None:
+        if user.id not in self.friends:
+            log.warning(
+                f"{self} tried to remove {user} who is not in their friends list",
+            )
+            return
+
+        self.friends.append(user.id)
+        user_collection = app.state.services.database.users
+        await user_collection.update_one(
+            {"id": self.id},
+            {"$pull": {"friends": user.id}},
+        )
+
+        log.info(f"{self} removed {user} from their friends list")

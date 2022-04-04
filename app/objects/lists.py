@@ -44,15 +44,15 @@ class UserList(list["User"]):
 
     @property
     def staff(self) -> list[User]:
-        return [user for user in self if user.priv & Privileges.STAFF]
+        return [user for user in self if user.privileges & Privileges.STAFF]
 
     @property
     def restricted(self) -> list[User]:
-        return [user for user in self if user.priv & Privileges.RESTRICTED]
+        return [user for user in self if user.privileges & Privileges.RESTRICTED]
 
     @property
     def unrestricted(self) -> list[User]:
-        return [user for user in self if not user.priv & Privileges.RESTRICTED]
+        return [user for user in self if not user.privileges & Privileges.RESTRICTED]
 
     def enqueue(self, data: bytes, immune: list[int] = []) -> None:
         for user in self:

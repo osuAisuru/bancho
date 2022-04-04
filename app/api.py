@@ -111,6 +111,11 @@ async def bancho_handler(
     for packet, handler in app.packets.PacketArray(bytearray(body), packet_map):
         await handler(packet, user)
 
+        if (
+            osu_packet := app.packets.Packets(packet.packet_id)
+        ) is not app.packets.Packets.OSU_PING:
+            log.debug(f"Packet {osu_packet!r} handled for {user}")
+
     await user.update_activity()
     return Response(user.dequeue())
 
@@ -270,11 +275,6 @@ def register_packet(_packet: app.packets.Packets, allow_restricted: bool = False
     return decorator
 
 
-@register_packet(app.packets.Packets.OSU_PING, allow_restricted=True)
-async def ping(user: "User") -> None:
-    pass
-
-
 @register_packet(app.packets.Packets.OSU_CHANGE_ACTION, allow_restricted=True)
 async def change_action(
     user: "User",
@@ -295,7 +295,7 @@ async def send_public_message(
         log.warning(f"{user} tried to send a message while silenced")
         return
 
-    msg = packet_data.message.content
+    msg = packet_data.message.content.strip()
     if not msg:
         return
 
@@ -317,17 +317,20 @@ async def send_public_message(
 
     if not target_channel:
         log.warning(f"{user} tried to write to non-existant channel {recipient}")
+        return
 
     if user not in target_channel:
         log.warning(f"{user} tried to write in {recipient} without being in it")
+        return
 
     if not target_channel.has_permission(user):
         log.warning(f"{user} tried to write in {recipient} without permission")
+        return
 
     # TODO: commands
 
     target_channel.send(msg, user)
-    user.update_activity()
+    await user.update_activity()
 
     log.info(f"{user} sent a message to {recipient}: {msg}", file="logs/chat.log")
 
@@ -380,6 +383,7 @@ async def stop_spectating(user: "User") -> None:
         log.warning(
             f"{user} tried to stop spectating when they aren't spectating anyone",
         )
+        return
 
     user.spectating.remove_spectator(user)
 
@@ -391,8 +395,176 @@ async def spectate_frames(
 ) -> None:
     if not user.spectating:
         log.warning(
-            f"{user} tried to spectate frames when they aren't spectating anyone",
+            f"{user} tried to get spectate frames when they aren't spectating anyone",
         )
         return
 
-    # user.spectating.enqueue(app.packets.spectate_frames(user.id, packet_data.frames))
+    spec_frames = app.packets.spectate_frames(user.id, packet_data.frames)
+    for target in user.spectators:
+        target.enqueue(spec_frames)
+
+
+@register_packet(app.packets.Packets.OSU_CANT_SPECTATE)
+async def cant_spectate(user: "User") -> None:
+    if not user.spectating:
+        log.warning(
+            f"{user} tried to spectate when they aren't spectating anyone",
+        )
+        return
+
+    if not user.stealth:
+        data = app.packets.cant_spectate(user.id)
+
+        user.spectating.enqueue(data)
+        for target in user.spectating.spectators:
+            target.enqueue(data)
+
+
+@register_packet(app.packets.Packets.OSU_SEND_PRIVATE_MESSAGE)
+async def private_message(
+    user: "User",
+    packet_data: app.models.SendMessageStructure,
+) -> None:
+    if user.silenced:
+        log.warning(f"{user} tried to send a message while silenced")
+        return
+
+    msg = packet_data.message.content.strip()
+    if not msg:
+        return
+
+    target_name = packet_data.message.recipient_username
+    if not (target := await app.usecases.user.fetch(name=target_name)):
+        log.warning(
+            f"{user} tried to send a message to non-existent user {target_name}",
+        )
+        return
+
+    # TODO: blocked users, private dms
+
+    if target.silenced:
+        user.enqueue(app.packets.target_silenced(target_name))
+
+        log.warning(
+            f"{user} tried to send a message to {target_name} while they are silenced",
+        )
+        return
+
+    # TODO: commands
+
+    target.receive_message(msg, user)
+    await user.update_activity()
+
+    log.info(f"{user} sent a message to {target}: {msg}", file="logs/chat.log")
+
+
+@register_packet(app.packets.Packets.OSU_CHANNEL_JOIN)
+async def join_channel(
+    user: "User",
+    packet_data: app.models.ChannelStructure,
+) -> None:
+    if packet_data.channel_name in IGNORED_CHANNELS:
+        return
+
+    channel = app.state.sessions.channels[packet_data.channel_name]
+    if not channel or not user.join_channel(channel):
+        log.warning(f"{user} failed to join {channel}")
+
+
+@register_packet(app.packets.Packets.OSU_FRIEND_ADD)
+async def add_friend(
+    user: "User",
+    packet_data: app.models.FriendStructure,
+) -> None:
+    if not (target := await app.usecases.user.fetch(id=packet_data.target_id)):
+        log.warning(
+            f"{user} tried to friend non-existent user ID {packet_data.target_id}",
+        )
+        return
+
+    if target is app.state.sessions.bot:
+        return
+
+    # TODO: blocked users
+
+    await user.update_activity()
+    await user.add_friend(target)
+
+
+@register_packet(app.packets.Packets.OSU_FRIEND_ADD)
+async def remove_friend(
+    user: "User",
+    packet_data: app.models.FriendStructure,
+) -> None:
+    if not (target := await app.usecases.user.fetch(id=packet_data.target_id)):
+        log.warning(
+            f"{user} tried to unfriend non-existent user ID {packet_data.target_id}",
+        )
+        return
+
+    if target is app.state.sessions.bot:
+        return
+
+    await user.update_activity()
+    await user.remove_friend(target)
+
+
+@register_packet(app.packets.Packets.OSU_CHANNEL_PART)
+async def leave_channel(
+    user: "User",
+    packet_data: app.models.ChannelStructure,
+) -> None:
+    if packet_data.channel_name in IGNORED_CHANNELS:
+        return
+
+    channel = app.state.sessions.channels[packet_data.channel_name]
+    if not channel or user not in channel:
+        log.warning(f"{user} failed to leave {channel}")
+
+    user.leave_channel(channel)
+
+
+@register_packet(app.packets.Packets.OSU_USER_STATS_REQUEST)
+async def stats_request(
+    user: "User",
+    packet_data: app.models.StatsRequestStructure,
+) -> None:
+    unrestricted_ids = [user.id for user in app.state.sessions.users.unrestricted]
+    is_online = lambda u: u in unrestricted_ids and u != user.id
+
+    for online_user in filter(is_online, packet_data.user_ids):
+        target = await app.usecases.user.fetch(id=online_user)
+        if not target:
+            continue  # ?, should not happen
+
+        user.enqueue(app.packets.user_stats(target))
+
+
+@register_packet(app.packets.Packets.OSU_USER_PRESENCE_REQUEST)
+async def user_presence_request(
+    user: "User",
+    packet_data: app.models.UserPresenceRequestStructure,
+) -> None:
+    unrestricted_ids = [user.id for user in app.state.sessions.users.unrestricted]
+    is_online = lambda u: u in unrestricted_ids and u != user.id
+
+    for online_user in filter(is_online, packet_data.user_ids):
+        target = await app.usecases.user.fetch(id=online_user)
+        if not target:
+            continue
+
+        user.enqueue(app.packets.user_presence(target))
+
+
+@register_packet(app.packets.Packets.OSU_USER_PRESENCE_REQUEST_ALL)
+async def user_presence_request_all(user: "User") -> None:
+    buffer = bytearray()
+
+    for u in app.state.sessions.users.unrestricted:
+        buffer += app.packets.user_presence(u)
+
+    user.enqueue(buffer)
+
+
+# XX: do i care about presence filter or away messages?
+# TODO: match stuff

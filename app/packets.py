@@ -3,6 +3,7 @@ from __future__ import annotations
 import struct
 from enum import IntEnum
 from functools import cache
+from functools import lru_cache
 from typing import Iterator
 from typing import TYPE_CHECKING
 
@@ -226,6 +227,9 @@ class Packets(IntEnum):
     OSU_TOURNAMENT_JOIN_MATCH_CHANNEL = 108
     OSU_TOURNAMENT_LEAVE_MATCH_CHANNEL = 109
 
+    def __repr__(self) -> str:
+        return f"<{self.name} ({self.value})>"
+
 
 @cache
 def pong() -> bytearray:
@@ -338,7 +342,7 @@ def user_stats(user: User) -> bytearray:
     return packet.serialise()
 
 
-@cache
+@lru_cache(maxsize=4)
 def notification(msg: str) -> bytearray:
     packet = Packet.from_id(Packets.CHO_NOTIFICATION)
     packet += String.write(msg)
@@ -435,6 +439,13 @@ def spectate_frames(frames: bytes) -> bytearray:
 
 
 @cache
+def cant_spectate(user_id: int) -> bytearray:
+    packet = Packet.from_id(Packets.CHO_SPECTATOR_CANT_SPECTATE)
+    packet += i32.write(user_id)
+    return packet.serialise()
+
+
+@lru_cache(maxsize=8)
 def join_channel(channel: str) -> bytearray:
     packet = Packet.from_id(Packets.CHO_CHANNEL_JOIN_SUCCESS)
     packet += String.write(channel)
@@ -450,14 +461,14 @@ def channel_info(channel: Channel) -> bytearray:
     return packet.serialise()
 
 
-@cache
+@lru_cache(maxsize=8)
 def channel_kick(channel: str) -> bytearray:
     packet = Packet.from_id(Packets.CHO_CHANNEL_KICK)
     packet += String.write(channel)
     return packet.serialise()
 
 
-@cache
+@lru_cache(maxsize=16)
 def channel_join(channel: str) -> bytearray:
     packet = Packet.from_id(Packets.CHO_CHANNEL_JOIN_SUCCESS)
     packet += String.write(channel)
@@ -473,6 +484,13 @@ def version_update_forced() -> bytearray:
 @cache
 def user_restricted() -> bytearray:
     packet = Packet.from_id(Packets.CHO_ACCOUNT_RESTRICTED)
+    return packet.serialise()
+
+
+@lru_cache(maxsize=8)
+def target_silenced(target_name: str) -> bytearray:
+    packet = Packet.from_id(Packets.CHO_TARGET_IS_SILENCED)
+    packet += Message.write("", "", target_name, 0)
     return packet.serialise()
 
 

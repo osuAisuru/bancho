@@ -4,8 +4,11 @@ import struct
 from typing import Any
 from typing import Awaitable
 from typing import Callable
+from typing import Optional
 from typing import TYPE_CHECKING
 from typing import TypedDict
+
+from app.constants.action import ReplayAction
 
 
 class LoginData(TypedDict):
@@ -274,6 +277,125 @@ class OsuChannel(osuType):
         return data
 
 
+SCOREFRAME_FMT = struct.Struct("<iBHHHHHHiHH?BB?")
+
+
+class ScoreFrame(osuType):
+    def __init__(
+        self,
+        time: int,
+        id: int,
+        num300: int,
+        num100: int,
+        num50: int,
+        num_geki: int,
+        num_katu: int,
+        num_miss: int,
+        total_score: int,
+        current_combo: int,
+        max_combo: int,
+        perfect: bool,
+        current_hp: int,
+        tag_byte: int,
+        score_v2: bool,
+        combo_portion: Optional[float] = None,
+        bonus_portion: Optional[float] = None,
+    ):
+        self.time = time
+        self.id = id
+        self.num300 = num300
+        self.num100 = num100
+        self.num50 = num50
+        self.num_geki = num_geki
+        self.num_katu = num_katu
+        self.num_miss = num_miss
+        self.total_score = total_score
+        self.current_combo = current_combo
+        self.max_combo = max_combo
+        self.perfect = perfect
+        self.current_hp = current_hp
+        self.tag_byte = tag_byte
+
+        self.score_v2 = score_v2
+
+        self.combo_portion: Optional[float] = combo_portion
+        self.bonus_portion: Optional[float] = bonus_portion
+
+    @classmethod
+    def read(cls, packet: Packet) -> ScoreFrame:
+        # this is for speed, maybe ill write this out properly later
+        data = packet.read(29)
+        score_frame = ScoreFrame(*SCOREFRAME_FMT.unpack_from(data))
+
+        if score_frame.score_v2:
+            score_frame.combo_portion = f64.read(packet)
+            score_frame.bonus_portion = f64.read(packet)
+
+        return score_frame
+
+    @classmethod
+    def write(
+        cls,
+        time: int,
+        id: int,
+        num300: int,
+        num100: int,
+        num50: int,
+        num_geki: int,
+        num_katu: int,
+        num_miss: int,
+        total_score: int,
+        current_combo: int,
+        max_combo: int,
+        perfect: bool,
+        current_hp: int,
+        tag_byte: int,
+        score_v2: bool,
+        combo_portion: Optional[float] = None,
+        bonus_portion: Optional[float] = None,
+    ):
+        score_frame = ScoreFrame(
+            time,
+            id,
+            num300,
+            num100,
+            num50,
+            num_geki,
+            num_katu,
+            num_miss,
+            total_score,
+            current_combo,
+            max_combo,
+            perfect,
+            current_hp,
+            tag_byte,
+            score_v2,
+            combo_portion,
+            bonus_portion,
+        )
+
+        return score_frame.serialise()
+
+    def serialise(self) -> bytearray:
+        return SCOREFRAME_FMT.pack(
+            self.time,
+            self.id,
+            self.num300,
+            self.num100,
+            self.num50,
+            self.num_geki,
+            self.num_katu,
+            self.num_miss,
+            self.total_score,
+            self.current_combo,
+            self.max_combo,
+            self.perfect,
+            self.current_hp,
+            self.tag_byte,
+            self.score_v2,
+        )
+
+
 class ReplayFrame(osuType):
     def __init__(
         self,
@@ -329,7 +451,7 @@ class ReplayFrameBundle(osuType):
         self,
         frames: list[ReplayFrame],
         score_frame: ScoreFrame,
-        action: ReplayFrame,
+        action: ReplayAction,
         extra: i32,  # ?
         sequence: u16,  # ?
         raw_data: bytearray,

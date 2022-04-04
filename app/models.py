@@ -5,7 +5,9 @@ from pydantic import BaseModel
 from app.constants.action import Action
 from app.constants.privileges import Privileges
 from app.typing import i32
+from app.typing import i32_list
 from app.typing import Message
+from app.typing import ReplayFrameBundle
 from app.typing import String
 from app.typing import u32
 from app.typing import u8
@@ -57,3 +59,23 @@ class SendMessageStructure:
 
 class StartSpectatingStructure:
     target_id: i32
+
+
+class SpectateFramesStructure:
+    frame_bundle: ReplayFrameBundle
+
+
+class ChannelStructure:
+    channel_name: String
+
+
+class FriendStructure:
+    target_id: i32
+
+
+class StatsRequestStructure:
+    user_ids: i32_list
+
+
+class UserPresenceRequestStructure:
+    user_ids: i32_list
