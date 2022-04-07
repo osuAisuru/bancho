@@ -9,6 +9,13 @@ from typing import TYPE_CHECKING
 from typing import TypedDict
 
 from app.constants.action import ReplayAction
+from app.constants.mode import Mode
+from app.constants.mods import Mods
+from app.objects.match import MatchTeams
+from app.objects.match import MatchTeamTypes
+from app.objects.match import MatchWinConditions
+from app.objects.match import Slot
+from app.objects.match import SlotStatus
 
 
 class LoginData(TypedDict):
@@ -149,6 +156,16 @@ class i64(osuType):
     @classmethod
     def write(cls, data: int) -> bytearray:
         return struct.pack("<q", data)
+
+
+class f64(osuType):
+    @classmethod
+    def read(cls, packet: Packet) -> int:
+        return read_float(packet.read(8))
+
+    @classmethod
+    def write(cls, data: float) -> bytearray:
+        return struct.pack("<d", data)
 
 
 class String(osuType):
@@ -507,5 +524,186 @@ class ReplayFrameBundle(osuType):
         data += self.score_frame.serialise()
         data += u16.write(self.sequence)
         data += u8.write(self.action.value)
+
+        return data
+
+
+class OsuMatch(osuType):
+    def __init__(
+        self,
+        id: int,
+        in_progress: bool,
+        mods: Mods,
+        password: str,
+        name: str,
+        map_name: str,
+        map_id: int,
+        map_md5: str,
+        slot_ids: list[int],
+        win_condition: MatchWinConditions,
+        team_type: MatchTeamTypes,
+        freemod: bool,
+        seed: int,
+        slot_statuses: list[SlotStatus],
+        slot_teams: list[MatchTeams],
+        slot_mods: list[Mods],
+        mode: Mode,
+        host_id: int,
+    ):
+        self.id: int = id
+        self.in_progress: bool = in_progress
+        self.mods: Mods = mods
+        self.password: str = password
+        self.name: str = name
+        self.map_name: str = map_name
+        self.map_id: int = map_id
+        self.map_md5: str = map_md5
+        self.slot_ids: list[int] = slot_ids
+        self.win_condition: MatchWinConditions = win_condition
+        self.team_type: MatchTeamTypes = team_type
+        self.freemod: bool = freemod
+        self.seed: int = seed
+
+        self.slot_statuses: list[SlotStatus] = slot_statuses
+        self.slot_teams: list[MatchTeams] = slot_teams
+        self.slot_mods: list[Mods] = slot_mods
+        self.mode: Mode = mode
+        self.host_id: int = host_id
+
+    @classmethod
+    def read(cls, packet: Packet) -> OsuMatch:
+        match_id = i16.read(packet)
+        in_progress = i8.read(packet) == 1
+        powerplay = i8.read(packet)  # ?
+        mods = Mods(i32.read(packet))
+        name = String.read(packet)
+        password = String.read(packet)
+        map_name = String.read(packet)
+        map_id = i32.read(packet)
+        map_md5 = String.read(packet)
+        slot_statuses = [SlotStatus(i8.read(packet)) for _ in range(16)]
+        slot_teams = [MatchTeams(i8.read(packet)) for _ in range(16)]
+
+        slot_ids = []
+        for status in slot_statuses:
+            if status & SlotStatus.HAS_USER:
+                slot_ids.append(i32.read(packet))
+
+        host_id = i32.read(packet)
+        mode = Mode(i8.read(packet))
+        win_condition = MatchWinConditions(i8.read(packet))
+        team_type = MatchTeamTypes(i8.read(packet))
+        freemod = i8.read(packet) == 1
+
+        slot_mods = []
+        if freemod:
+            slot_mods = [Mods(i32.read(packet)) for _ in range(16)]
+
+        seed = i32.read(packet)
+
+        return OsuMatch(
+            match_id,
+            in_progress,
+            mods,
+            password,
+            name,
+            map_name,
+            map_id,
+            map_md5,
+            slot_ids,
+            win_condition,
+            team_type,
+            freemod,
+            seed,
+            slot_statuses,
+            slot_teams,
+            slot_mods,
+            mode,
+            host_id,
+        )
+
+    @classmethod
+    def write(
+        cls,
+        id: int,
+        in_progress: bool,
+        mods: Mods,
+        password: str,
+        name: str,
+        map_name: str,
+        map_id: int,
+        map_md5: str,
+        slot_ids: list[int],
+        win_condition: MatchWinConditions,
+        team_type: MatchTeamTypes,
+        freemod: bool,
+        seed: int,
+        slot_statuses: list[SlotStatus],
+        slot_teams: list[MatchTeams],
+        slot_mods: list[Mods],
+        mode: Mode,
+        host_id: int,
+    ):
+        match = OsuMatch(
+            id,
+            in_progress,
+            mods,
+            password,
+            name,
+            map_name,
+            map_id,
+            map_md5,
+            slot_ids,
+            win_condition,
+            team_type,
+            freemod,
+            seed,
+            slot_statuses,
+            slot_teams,
+            slot_mods,
+            mode,
+            host_id,
+        )
+
+        return match.serialise()
+
+    def serialise(self, send_pw: bool = True) -> bytearray:
+        data = bytearray(u16.write(self.id))
+
+        data += i8.write(int(self.in_progress))
+        data += i8.write(0)  # ?
+        data += i32.write(self.mods.value)
+        data += String.write(self.name)
+
+        if self.password:
+            if send_pw:
+                data += String.write(self.password)
+            else:
+                data += b"\x0b\x00"
+        else:
+            data += b"\x00"
+
+        data += String.write(self.map_name)
+        data += i32.write(self.map_id)
+        data += String.write(self.map_md5)
+
+        data.extend([status.value for status in self.slot_statuses])
+        data.extend([team.value for team in self.slot_teams])
+
+        for idx, slot_status in enumerate(self.slot_statuses):
+            if slot_status & SlotStatus.HAS_USER:
+                data += i32.write(self.slot_ids[idx])
+
+        data += i32.write(self.host_id)
+        data += i8.write(self.mode.value)
+        data += i8.write(self.win_condition.value)
+        data += i8.write(self.team_type.value)
+        data += i8.write(int(self.freemod))
+
+        if self.freemod:
+            for mod in self.slot_mods:
+                data += i32.write(mod.value)
+
+        data += i32.write(self.seed)
 
         return data

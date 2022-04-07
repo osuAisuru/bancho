@@ -4,6 +4,7 @@ from typing import TYPE_CHECKING
 
 from app.objects.channel import Channel
 from app.objects.lists import ChannelList
+from app.objects.lists import MatchList
 from app.objects.lists import UserList
 
 if TYPE_CHECKING:
@@ -15,6 +16,7 @@ import log
 
 users = UserList()
 channels = ChannelList()
+matches = MatchList()
 
 bot: User
 
@@ -33,3 +35,11 @@ async def populate_sessions() -> None:
     async for channel in channel_collection.find({}):
         channel.pop("_id")
         app.state.sessions.channels.append(Channel(**channel))
+
+    app.state.sessions.channels.append(
+        Channel(
+            name="#lobby",
+            topic="Lobby chat",
+            auto_join=False,
+        ),
+    )

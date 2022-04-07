@@ -14,8 +14,14 @@ from fastapi.responses import HTMLResponse
 from fastapi.responses import Response
 
 import log
+from app.constants.mods import Mods
 from app.constants.privileges import BanchoPrivileges
 from app.constants.privileges import Privileges
+from app.objects.channel import Channel
+from app.objects.match import MatchTeams
+from app.objects.match import MatchTeamTypes
+from app.objects.match import Slot
+from app.objects.match import SlotStatus
 
 if TYPE_CHECKING:
     from app.objects.user import User
@@ -27,7 +33,7 @@ import app.models
 import app.config
 import app.utils
 from app.state.services import Geolocation
-from app.typing import LoginData, Message, PacketHandler
+from app.typing import LoginData, Message, PacketHandler, i32
 
 router = APIRouter(tags=["Bancho API"])
 
@@ -90,7 +96,8 @@ async def bancho_handler(
     body = await request.body()
 
     if not osu_token:
-        login_data = await login(body, geoloc)
+        async with app.state.sessions.users.lock:
+            login_data = await login(body, geoloc)
 
         return Response(
             content=bytes(login_data["body"]),
@@ -117,7 +124,7 @@ async def bancho_handler(
         ) is not app.packets.Packets.OSU_PING:
             log.debug(f"Packet {osu_packet!r} handled for {user}")
 
-    await user.update_activity()
+    await app.usecases.user.update_activity(user)
     return Response(user.dequeue())
 
 
@@ -205,10 +212,10 @@ async def login(
         )
 
     if not user.privileges & Privileges.VERIFIED:
-        await user.add_privilege(Privileges.VERIFIED)
+        await app.usecases.user.add_privilege(user, Privileges.VERIFIED)
 
         if user.id == 3:
-            await user.set_privileges(Privileges.MASTER)
+            await app.usecases.user.set_privileges(user, Privileges.MASTER)
 
         data += app.packets.send_message(
             Message(
@@ -234,7 +241,7 @@ async def login(
         f"{user.name} logged in with osu! version {user.osu_version} from {user.geolocation.country.acronym.upper()} in {formatted_time}",
     )
 
-    await user.update_activity()
+    await app.usecases.user.update_activity(user)
     user.login_time = int(time.time())
 
     return {
@@ -258,8 +265,11 @@ def register_packet(_packet: app.packets.Packets, allow_restricted: bool = False
                 data = structure_class()
 
                 for field, _type in structure_class.__annotations__.items():
-                    _type_class = app.utils.get_class_from_module(_type)
-                    data.__dict__[field] = _type_class.read(packet)
+                    if _type in ("bytearray", "bytes"):
+                        data.__dict__[field] = packet.data
+                    else:
+                        _type_class = app.utils.get_class_from_module(_type)
+                        data.__dict__[field] = _type_class.read(packet)
 
                 return await handler(
                     user,
@@ -284,7 +294,7 @@ async def change_action(
     user: "User",
     packet_data: app.models.ChangeActionStructure,
 ) -> None:
-    user.update_status(packet_data)
+    app.usecases.user.update_status(user, packet_data)
 
 
 IGNORED_CHANNELS = ["#highlight", "#userlog"]
@@ -315,7 +325,10 @@ async def send_public_message(
 
         target_channel = app.state.sessions.channels[f"#spec_{spec_id}"]
     elif recipient == "#multiplayer":
-        return  # TODO
+        if not user.match:
+            return
+
+        target_channel = user.match.chat
     else:
         target_channel = app.state.sessions.channels[recipient]
 
@@ -327,14 +340,14 @@ async def send_public_message(
         log.warning(f"{user} tried to write in {recipient} without being in it")
         return
 
-    if not target_channel.has_permission(user):
+    if not target_channel.has_permission(user.privileges):
         log.warning(f"{user} tried to write in {recipient} without permission")
         return
 
     # TODO: commands
 
     target_channel.send(msg, user)
-    await user.update_activity()
+    await app.usecases.user.update_activity(user)
 
     log.info(f"{user} sent a message to {recipient}: {msg}", file="logs/chat.log")
 
@@ -345,7 +358,7 @@ async def logout(user: "User") -> None:
         return  # just osu things
 
     app.usecases.user.logout(user)
-    await user.update_activity()
+    await app.usecases.user.update_activity(user)
 
 
 @register_packet(app.packets.Packets.OSU_REQUEST_STATUS_UPDATE, allow_restricted=True)
@@ -376,9 +389,9 @@ async def start_spectating(
 
             return
 
-        existing_host.remove_spectator(user)
+        app.usecases.user.remove_spectator(existing_host, user)
 
-    host.add_spectator(user)
+    app.usecases.user.add_spectator(host, user)
 
 
 @register_packet(app.packets.Packets.OSU_STOP_SPECTATING)
@@ -389,7 +402,7 @@ async def stop_spectating(user: "User") -> None:
         )
         return
 
-    user.spectating.remove_spectator(user)
+    app.usecases.user.remove_spectator(user.spectating, user)
 
 
 @register_packet(app.packets.Packets.OSU_SPECTATE_FRAMES)
@@ -471,7 +484,7 @@ async def private_message(
     # TODO: commands
 
     target.receive_message(msg, user)
-    await user.update_activity()
+    await app.usecases.user.update_activity(user)
 
     log.info(f"{user} sent a message to {target}: {msg}", file="logs/chat.log")
 
@@ -485,8 +498,11 @@ async def join_channel(
         return
 
     channel = app.state.sessions.channels[packet_data.channel_name]
-    if not channel or not user.join_channel(channel):
+    if not channel:
         log.warning(f"{user} failed to join {channel}")
+        return
+
+    app.usecases.user.join_channel(user, channel)
 
 
 @register_packet(app.packets.Packets.OSU_FRIEND_ADD)
@@ -507,8 +523,8 @@ async def add_friend(
         log.warning(f"{user} tried to add {target}, but they are blocked")
         return
 
-    await user.update_activity()
-    await user.add_friend(target)
+    await app.usecases.user.update_activity(user)
+    await app.usecases.user.add_friend(user, target)
 
 
 @register_packet(app.packets.Packets.OSU_FRIEND_ADD)
@@ -525,8 +541,8 @@ async def remove_friend(
     if target is app.state.sessions.bot:
         return
 
-    await user.update_activity()
-    await user.remove_friend(target)
+    await app.usecases.user.update_activity(user)
+    await app.usecases.user.remove_friend(user, target)
 
 
 @register_packet(app.packets.Packets.OSU_CHANNEL_PART)
@@ -538,10 +554,17 @@ async def leave_channel(
         return
 
     channel = app.state.sessions.channels[packet_data.channel_name]
-    if not channel or user not in channel:
-        log.warning(f"{user} failed to leave {channel}")
+    if not channel:
+        if packet_data.channel_name[0] == "#":
+            log.warning(f"{user} tried to leave non-existant channel {channel}")
 
-    user.leave_channel(channel)
+        return
+
+    if user not in channel:
+        log.warning(f"{user} tried to leave {channel} without being in it")
+        return
+
+    app.usecases.user.leave_channel(user, channel)
 
 
 @register_packet(app.packets.Packets.OSU_USER_STATS_REQUEST)
@@ -587,10 +610,524 @@ async def user_presence_request_all(user: "User") -> None:
 
 
 @register_packet(app.packets.Packets.OSU_TOGGLE_BLOCK_NON_FRIEND_DMS)
-async def toggle_dms(user: "User", packet_data: app.models.ToggleDMStructure):
+async def toggle_dms(user: "User", packet_data: app.models.ToggleDMStructure) -> None:
     user.friend_only_dms = packet_data.value == 1
-    await user.update_activity()
+    await app.usecases.user.update_activity(user)
+
+
+@register_packet(app.packets.Packets.OSU_JOIN_LOBBY)
+async def join_lobby(user: "User") -> None:
+    user.in_lobby = True
+
+    for match in app.state.sessions.matches:
+        if match is not None:
+            user.enqueue(app.packets.new_match(match))
+
+
+@register_packet(app.packets.Packets.OSU_CREATE_MATCH)
+async def create_match(user: "User", packet_data: app.models.MatchStructure) -> None:
+    match = app.usecases.match.from_packet(packet_data.match)
+
+    if user.silenced:
+        user.enqueue(
+            app.packets.match_join_fail()
+            + app.packets.notification("Multiplayer is not available while silenced."),
+        )
+
+        return
+
+    if not app.state.sessions.matches.append(match):
+        user.receive_message(
+            "Failed to create match (no slots are left)",
+            app.state.sessions.bot,
+        )
+        user.enqueue(app.packets.match_join_fail())
+
+        return
+
+    channel = Channel(
+        name="#multiplayer",
+        topic=f"Match ID {match.id}'s multiplayer channel",
+        auto_join=False,
+        instance=True,
+        real_name=f"#multi_{match.id}",
+    )
+
+    app.state.sessions.channels.append(channel)
+    match.chat = channel
+
+    await app.usecases.user.update_activity(user)
+    app.usecases.user.join_match(user, match, match.password)
+
+    log.info(f"{user} created new multiplayer match {match}")
+
+
+@register_packet(app.packets.Packets.OSU_JOIN_MATCH)
+async def join_match(user: "User", packet_data: app.models.JoinMatchStructure) -> None:
+    if user.silenced:
+        user.enqueue(
+            app.packets.match_join_fail()
+            + app.packets.notification("Multiplayer is not available while silenced."),
+        )
+
+        return
+
+    if not (match := app.state.sessions.matches[packet_data.match_id]):
+        log.warning(
+            f"{user} tried to join non-existent match ID {packet_data.match_id}",
+        )
+        user.enqueue(app.packets.match_join_fail())
+
+    await app.usecases.user.update_activity(user)
+    app.usecases.user.join_match(user, match, packet_data.match_password)
+
+
+@register_packet(app.packets.Packets.OSU_PART_MATCH)
+async def leave_match(user: "User") -> None:
+    await app.usecases.user.update_activity(user)
+    app.usecases.user.leave_match(user)
+
+
+@register_packet(app.packets.Packets.OSU_MATCH_CHANGE_SLOT)
+async def change_match_slot(
+    user: "User",
+    packet_data: app.models.MatchSlotStructure,
+) -> None:
+    if not (match := user.match):
+        return
+
+    if not 0 <= packet_data.slot_id < 16:
+        return
+
+    if match.slots[packet_data.slot_id] != SlotStatus.OPEN:
+        log.warning(f"{user} tried to move into a non-open slot")
+        return
+
+    slot = match.get_slot(user)
+    assert slot is not None
+
+    match.slots[packet_data.slot_id].copy_from(slot)
+    slot.reset()
+
+    app.usecases.match.enqueue_state(match)
+
+
+@register_packet(app.packets.Packets.OSU_MATCH_READY)
+async def match_ready(user: "User") -> None:
+    if not (match := user.match):
+        return
+
+    slot = match.get_slot(user)
+    assert slot is not None
+
+    slot.status = SlotStatus.READY
+    app.usecases.match.enqueue_state(match)
+
+
+@register_packet(app.packets.Packets.OSU_MATCH_LOCK)
+async def lock_match(user: "User", packet_data: app.models.MatchSlotStructure) -> None:
+    if not (match := user.match):
+        return
+
+    if user is not app.usecases.match.host(match):
+        log.warning(f"{user} tried to lock match slot as non-host")
+        return
+
+    if not 0 <= packet_data.slot_id < 16:
+        return
+
+    slot = match.slots[packet_data.slot_id]
+    if slot.status == SlotStatus.LOCKED:
+        slot.status = SlotStatus.OPEN
+    else:
+        if slot.user is app.usecases.match.host(match):
+            return
+
+        slot.status = SlotStatus.LOCKED
+
+    app.usecases.match.enqueue_state(match)
+
+
+@register_packet(app.packets.Packets.OSU_MATCH_CHANGE_SETTINGS)
+async def change_match_settings(
+    user: "User",
+    packet_data: app.models.MatchStructure,
+) -> None:
+    if not (match := user.match):
+        return
+
+    if user is not app.usecases.match.host(match):
+        log.warning(f"{user} tried to change match settings as non-host")
+        return
+
+    if packet_data.match.freemod != match.freemod:
+        match.freemod = packet_data.match.freemod
+
+        if packet_data.match.freemod:
+            for slot in match.slots:
+                if slot.status & SlotStatus.HAS_USER:
+                    slot.mods = match.mods & ~Mods.SPEED_MODS
+
+            match.mods &= Mods.SPEED_MODS
+        else:
+            host = app.usecases.match.get_host_slot(match)
+            assert host is not None
+
+            host.mods &= Mods.SPEED_MODS
+            match.mods |= host.mods
+
+            for slot in match.slots:
+                if slot.status & SlotStatus.HAS_USER:
+                    slot.mods = Mods.NOMOD
+
+    if packet_data.match.map_id == -1:
+        match.unready_users()
+        match.last_map_id = match.map_id
+
+        match.map_id = -1
+        match.map_md5 = ""
+        match.map_name = ""
+    elif match.map_id == -1:
+        # TODO: get/validate beatmap from api
+
+        match.map_id = packet_data.match.map_id
+        match.map_md5 = packet_data.match.map_md5
+        match.map_name = packet_data.match.map_name
+        match.mode = packet_data.match.mode
+
+        if match.last_map_id != packet_data.match.map_id:
+            match.chat.send(f"Selected: {match.map_embed}", app.state.sessions.bot)
+
+    if match.team_type != packet_data.match.team_type:
+        if packet_data.match.team_type in (
+            MatchTeamTypes.HEAD_TO_HEAD,
+            MatchTeamTypes.TAG_COOP,
+        ):
+            new_type = MatchTeams.NEUTRAL
+        else:
+            new_type = MatchTeams.RED
+
+        for slot in match.slots:
+            if slot.status & SlotStatus.HAS_USER:
+                slot.team = new_type
+
+        match.team_type = packet_data.match.team_type
+
+    match.win_condition = packet_data.match.win_condition
+    match.name = packet_data.match.name
+
+    app.usecases.match.enqueue_state(match)
+
+
+@register_packet(app.packets.Packets.OSU_MATCH_START)
+async def start_match(user: "User") -> None:
+    if not (match := user.match):
+        return
+
+    if user is not app.usecases.match.host(match):
+        log.warning(f"{user} tried to start match as non-host")
+        return
+
+    app.usecases.match.start(match)
+
+
+@register_packet(app.packets.Packets.OSU_MATCH_SCORE_UPDATE)
+async def update_match_score(
+    user: "User",
+    packet_data: app.models.RawStructure,
+) -> None:
+    if not (match := user.match):
+        return
+
+    # raw write for speed, this is called often
+    data = bytearray(b"0\x00\x00")
+    data += i32.write(len(packet_data.data))
+    data += packet_data.data
+    data[11] = match.get_slot_id(user)
+
+    app.usecases.match.enqueue(match, data, lobby=False)
+
+
+@register_packet(app.packets.Packets.OSU_MATCH_COMPLETE)
+async def match_complete(user: "User") -> None:
+    if not (match := user.match):
+        return
+
+    slot = match.get_slot(user)
+    assert slot is not None
+
+    slot.status = SlotStatus.COMPLETE
+
+    if any(slot.status == SlotStatus.PLAYING for slot in match.slots):
+        return
+
+    not_playing = [
+        slot.user.id
+        for slot in match.slots
+        if slot.status & SlotStatus.HAS_USER and slot.status != SlotStatus.COMPLETE
+    ]
+
+    match.unready_users(expected=SlotStatus.COMPLETE)
+    match.in_progress = False
+
+    app.usecases.match.enqueue(
+        match,
+        app.packets.match_complete(),
+        lobby=False,
+        immune=not_playing,
+    )
+    app.usecases.match.enqueue_state(match)
+
+
+@register_packet(app.packets.Packets.OSU_MATCH_CHANGE_MODS)
+async def change_match_mods(
+    user: "User",
+    packet_data: app.models.MatchModsStructure,
+) -> None:
+    if not (match := user.match):
+        return
+
+    if match.freemod:
+        if user is app.usecases.match.host(match):
+            match.mods = Mods(packet_data.mods & Mods.SPEED_MODS)
+
+        slot = match.get_slot(user)
+        assert slot is not None
+        slot.mods = Mods(packet_data.mods & ~Mods.SPEED_MODS)
+    else:
+        if user is not app.usecases.match.host(match):
+            log.warning(f"{user} tried to change mods as non-host")
+            return
+
+        match.mods = Mods(packet_data.mods)
+
+    app.usecases.match.enqueue_state(match)
+
+
+def is_playing(slot: Slot) -> bool:
+    return slot.status == SlotStatus.PLAYING and not slot.loaded
+
+
+@register_packet(app.packets.Packets.OSU_MATCH_LOAD_COMPLETE)
+async def match_load_complete(user: "User") -> None:
+    if not (match := user.match):
+        return
+
+    slot = match.get_slot(user)
+    assert slot is not None
+
+    slot.loaded = True
+    if not any(map(is_playing, match.slots)):
+        app.usecases.match.enqueue(
+            match,
+            app.packets.match_all_players_loaded(),
+            lobby=False,
+        )
+
+
+@register_packet(app.packets.Packets.OSU_MATCH_NO_BEATMAP)
+async def missing_beatmap(user: "User") -> None:
+    if not (match := user.match):
+        return
+
+    slot = match.get_slot(user)
+    assert slot is not None
+
+    slot.status = SlotStatus.NO_MAP
+    app.usecases.match.enqueue_state(match, lobby=False)
+
+
+@register_packet(app.packets.Packets.OSU_MATCH_NOT_READY)
+async def match_unready(user: "User") -> None:
+    if not (match := user.match):
+        return
+
+    slot = match.get_slot(user)
+    assert slot is not None
+
+    slot.status = SlotStatus.NOT_READY
+    app.usecases.match.enqueue_state(match, lobby=False)
+
+
+@register_packet(app.packets.Packets.OSU_MATCH_FAILED)
+async def match_failed(user: "User") -> None:
+    if not (match := user.match):
+        return
+
+    slot_id = match.get_slot_id(user)
+    assert slot_id is not None
+
+    app.usecases.match.enqueue(
+        match,
+        app.packets.match_player_failed(slot_id),
+        lobby=False,
+    )
+
+
+@register_packet(app.packets.Packets.OSU_MATCH_HAS_BEATMAP)
+async def has_beatmap(user: "User") -> None:
+    if not (match := user.match):
+        return
+
+    slot = match.get_slot(user)
+    assert slot is not None
+
+    slot.status = SlotStatus.NOT_READY
+    app.usecases.match.enqueue_state(match, lobby=False)
+
+
+@register_packet(app.packets.Packets.OSU_MATCH_SKIP_REQUEST)
+async def match_skip_request(user: "User") -> None:
+    if not (match := user.match):
+        return
+
+    slot = match.get_slot(user)
+    assert slot is not None
+
+    slot.skipped = True
+    app.usecases.match.enqueue(app.packets.match_player_skipped(user.id))
+
+    for slot in match.slots:
+        if slot.status == SlotStatus.PLAYING and not slot.skipped:
+            return
+
+    app.usecases.match.enqueue(app.packets.match_skip(), lobby=False)
+
+
+@register_packet(app.packets.Packets.OSU_MATCH_TRANSFER_HOST)
+async def transfer_host(
+    user: "User",
+    packet_data: app.models.MatchSlotStructure,
+) -> None:
+    if not (match := user.match):
+        return
+
+    if user is not app.usecases.match.host(match):
+        log.warning(f"{user} tried to transfer host as non-host")
+        return
+
+    if not 0 <= packet_data.slot_id < 16:
+        return
+
+    if not (target := match.slots[packet_data.slot_id].user):
+        log.warning(f"{user} tried to transfer host to empty slot")
+        return
+
+    match.host_id = target.id
+    app.usecases.match.host(match).enqueue(app.packets.match_transfer_host())
+    app.usecases.match.enqueue_state(match)
+
+
+@register_packet(app.packets.Packets.OSU_TOURNAMENT_MATCH_INFO_REQUEST)
+async def tourney_match_info(
+    user: "User",
+    packet_data: app.models.MatchIDSStructure,
+) -> None:
+    if not 0 <= packet_data.match_id < 64:
+        return
+
+    if not user.privileges & Privileges.SUPPORTER:
+        return
+
+    if not (match := app.state.sessions.matches[packet_data.match_id]):
+        return
+
+    user.enqueue(app.packets.update_match(match, send_pw=False))
+
+
+@register_packet(app.packets.Packets.OSU_TOURNAMENT_JOIN_MATCH_CHANNEL)
+async def tourney_join_channel(
+    user: "User",
+    packet_data: app.models.MatchIDSStructure,
+) -> None:
+    if not 0 <= packet_data.match_id < 64:
+        return
+
+    if not user.privileges & Privileges.SUPPORTER:
+        return
+
+    if not (match := app.state.sessions.matches[packet_data.match_id]):
+        return
+
+    for slot in match.slots:
+        if slot.user is not None and slot.user.id == user.id:
+            return
+
+    if app.usecases.user.join_channel(user, match.chat):
+        match.tourney_clients.add(user.id)
+
+
+@register_packet(app.packets.Packets.OSU_TOURNAMENT_LEAVE_MATCH_CHANNEL)
+async def tourney_leave_channel(
+    user: "User",
+    packet_data: app.models.MatchIDSStructure,
+) -> None:
+    if not 0 <= packet_data.match_id < 64:
+        return
+
+    if not user.privileges & Privileges.SUPPORTER:
+        return
+
+    if not (match := app.state.sessions.matches[packet_data.match_id]):
+        return
+
+    app.usecases.user.leave_channel(user, match.chat)
+    match.tourney_clients.remove(user.id)
+
+
+@register_packet(app.packets.Packets.OSU_MATCH_CHANGE_TEAM)
+async def change_match_team(user: "User") -> None:
+    if not (match := user.match):
+        return
+
+    slot = match.get_slot(user)
+    assert slot is not None
+
+    if slot.team == MatchTeams.BLUE:
+        slot.team = MatchTeams.RED
+    else:
+        slot.team = MatchTeams.BLUE
+
+    app.usecases.match.enqueue_state(match, lobby=False)
+
+
+@register_packet(app.packets.Packets.OSU_MATCH_INVITE)
+async def match_invite(
+    user: "User",
+    packet_data: app.models.MatchInviteStructure,
+) -> None:
+    if not user.match:
+        return
+
+    if not (target := app.usecases.user.cache_fetch(id=packet_data.user_id)):
+        log.warning(
+            f"{user} tried to invite user ID {packet_data.user_id} to a multi while they are offline",
+        )
+        return
+
+    if target is app.state.sessions.bot:
+        return
+
+    target.enqueue(app.packets.match_invite(user, target.name))
+    await app.usecases.user.update_activity(user)
+
+    log.info(f"{user} invited {target} to their match")
+
+
+@register_packet(app.packets.Packets.OSU_MATCH_CHANGE_PASSWORD)
+async def change_match_password(
+    user: "User",
+    packet_data: app.models.MatchStructure,
+) -> None:
+    if not (match := user.match):
+        return
+
+    if user is not app.usecases.match.host(match):
+        log.warning(f"{user} tried to change match password as non-host")
+        return
+
+    match.password = packet_data.match.password
+    app.usecases.match.enqueue_state(match)
 
 
 # XX: do i care about presence filter or away messages?
-# TODO: match stuff

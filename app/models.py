@@ -2,11 +2,11 @@ from __future__ import annotations
 
 from pydantic import BaseModel
 
-from app.constants.action import Action
 from app.constants.privileges import Privileges
 from app.typing import i32
 from app.typing import i32_list
 from app.typing import Message
+from app.typing import OsuMatch
 from app.typing import ReplayFrameBundle
 from app.typing import String
 from app.typing import u32
@@ -84,3 +84,32 @@ class UserPresenceRequestStructure:
 
 class ToggleDMStructure:
     value: i32
+
+
+class MatchStructure:
+    match: OsuMatch
+
+
+class JoinMatchStructure:
+    match_id: i32
+    match_password: String
+
+
+class MatchSlotStructure:
+    slot_id: i32
+
+
+class RawStructure:
+    data: bytearray
+
+
+class MatchModsStructure:
+    mods: i32
+
+
+class MatchIDSStructure:
+    match_id: i32
+
+
+class MatchInviteStructure:
+    user_id: i32

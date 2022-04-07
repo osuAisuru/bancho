@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from typing import Iterable
 from typing import Iterator
 from typing import Optional
@@ -11,6 +12,7 @@ from app.constants.privileges import Privileges
 
 if TYPE_CHECKING:
     from app.objects.channel import Channel
+    from app.objects.match import Match
     from app.objects.user import User
 
 import log
@@ -18,6 +20,7 @@ import log
 
 class UserList(list["User"]):
     def __init__(self, *args, **kwargs):
+        self.lock = asyncio.Lock()
         super().__init__(*args, **kwargs)
 
     def __iter__(self) -> Iterator[User]:
@@ -122,3 +125,38 @@ class ChannelList(list["Channel"]):
         super().remove(channel)
 
         log.debug(f"{channel} removed from channels list.")
+
+
+class MatchList(list["Match"]):
+    def __init__(self) -> None:
+        super().__init__([None] * 64)
+
+    def __iter__(self) -> Iterator[Optional[Match]]:
+        return super().__iter__()
+
+    def __repr__(self) -> str:
+        return f"[{', '.join(match.name for match in self if match)}]"
+
+    def get_free(self) -> Optional[int]:
+        for idx, match in enumerate(self):
+            if match is None:
+                return idx
+
+    def append(self, match: Match) -> bool:
+        if (free_idx := self.get_free()) is not None:
+            match.id = free_idx
+            self[free_idx] = match
+
+            log.debug(f"{match} added to matches list.")
+            return True
+
+        log.warning(f"Tried to add {match} to matches list, but it is full.")
+        return False
+
+    def remove(self, match: Match) -> None:
+        for idx, m in enumerate(self):
+            if m == match:
+                self[idx] = None
+                log.debug(f"{match} removed from matches list.")
+
+                break

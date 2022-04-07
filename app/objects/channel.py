@@ -2,7 +2,9 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+import app.packets
 from app.constants.privileges import Privileges
+from app.typing import Message
 
 if TYPE_CHECKING:
     from app.objects.user import User
@@ -59,7 +61,11 @@ class Channel:
         if not self.has_permission(sender.privileges):
             return
 
-        self.selective_send(msg, sender, self.users)
+        users = self.users[:]
+        if not to_self and sender in users:
+            users.remove(sender)
+
+        self.selective_send(msg, sender, users)
 
     def selective_send(
         self,
@@ -74,7 +80,16 @@ class Channel:
             if user not in self:
                 continue
 
-            user.receive_message(msg, sender)
+            user.enqueue(
+                app.packets.send_message(
+                    Message(
+                        sender.name,
+                        msg,
+                        self.name,
+                        sender.id,
+                    ),
+                ),
+            )
 
     def enqueue(self, data: bytes, immune: list[int] = []) -> None:
         for user in self.users:
