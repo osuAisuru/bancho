@@ -2,6 +2,9 @@ from __future__ import annotations
 
 import time
 from dataclasses import dataclass
+from datetime import date
+from functools import cached_property
+from typing import Literal
 from typing import Optional
 from typing import TYPE_CHECKING
 from typing import Union
@@ -23,6 +26,38 @@ from app.typing import Message
 
 
 @dataclass
+class ClientInfo:
+    client: OsuVersion
+
+    osu_md5: str
+    adapters_md5: str
+    uninstall_md5: str
+    disk_md5: str
+
+    adapters: list[str]
+
+
+@dataclass
+class OsuVersion:
+    date: date
+
+    # i don't like this order but defaults innit
+    stream: Literal["stable", "beta", "cuttingedge", "tourney", "dev"]
+    revision: Optional[int] = None
+
+    def __repr__(self) -> str:
+        return f"b{self.date_str}{self.stream}"
+
+    @cached_property
+    def date_str(self) -> str:
+        version = self.date.strftime("%Y%m%d")
+        if self.revision:
+            version += f".{self.revision}"
+
+        return version
+
+
+@dataclass
 class User:
     id: int
     name: str
@@ -38,7 +73,6 @@ class User:
 
     geolocation: Geolocation
     utc_offset: int
-    osu_version: str
     status: Status
     login_time: int
 
@@ -58,6 +92,9 @@ class User:
     stealth: bool
     in_lobby: bool
     friend_only_dms: bool
+    tourney: bool
+
+    client_info: Optional[ClientInfo]
 
     def __repr__(self) -> str:
         return f"<{self.name} ({self.id})>"
@@ -86,6 +123,13 @@ class User:
             privileges |= BanchoPrivileges.OWNER
 
         return privileges
+
+    @property
+    def can_tourney(self) -> bool:
+        return (
+            self.privileges & Privileges.SUPPORTER
+            or self.privileges & Privileges.MANAGER
+        )
 
     @property
     def remaining_silence(self) -> int:

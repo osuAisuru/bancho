@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import copy
 import time
+from datetime import date
+from datetime import datetime
 from typing import Optional
 from typing import Union
 from uuid import uuid4
@@ -24,6 +26,7 @@ from app.objects.match import MatchTeams
 from app.objects.match import MatchTeamTypes
 from app.objects.match import Slot
 from app.objects.match import SlotStatus
+from app.objects.user import ClientInfo
 from app.objects.user import User
 from app.state.services import Country
 from app.state.services import Geolocation
@@ -33,6 +36,7 @@ from app.typing import LoginData
 async def create_session(
     login_data: LoginData,
     geolocation: Geolocation,
+    client_info: Optional[ClientInfo] = None,
 ) -> Optional[User]:
     user_collection = app.state.services.database.users
 
@@ -57,7 +61,6 @@ async def create_session(
     return User(  # TODO: convert user to dataclass to simplify this
         **db_dict,
         geolocation=geolocation,
-        osu_version=login_data["osu_version"],
         utc_offset=login_data["utc_offset"],
         status=Status.default(),
         login_time=int(time.time()),
@@ -69,8 +72,10 @@ async def create_session(
         spectators=[],
         stealth=False,
         in_lobby=False,
+        tourney=False,
         friend_only_dms=login_data["pm_private"],
         match=False,
+        client_info=client_info,
     )
 
 
@@ -121,7 +126,6 @@ async def fetch(**kwargs) -> Optional[User]:
         return User(  # TODO: convert user to dataclass to simplify this
             **db_dict,
             geolocation=Geolocation(country=Country.from_iso(db_user.country)),
-            osu_version="",
             utc_offset=0,
             status=Status.default(),
             login_time=int(time.time()),
@@ -134,8 +138,46 @@ async def fetch(**kwargs) -> Optional[User]:
             stealth=False,
             in_lobby=False,
             friend_only_dms=False,
+            tourney=False,
             match=False,
+            client_info=None,
         )
+
+
+async def save_login(user: User) -> None:
+    login_collection = app.state.services.database.logins
+    await login_collection.insert_one(
+        {
+            "userid": user.id,
+            "ip": user.geolocation.ip,
+            "osu_ver": user.client_info.client.date_str,
+            "osu_stream": user.client_info.client.stream,
+            "datetime": datetime.now().isoformat(),
+        },
+    )
+
+    hashes_collection = app.state.services.database.client_hashes
+    await hashes_collection.update_one(
+        {
+            "userid": user.id,
+            "osu_md5": user.client_info.osu_md5,
+            "adapters": user.client_info.adapters_md5,
+            "uninstall": user.client_info.uninstall_md5,
+            "disk": user.client_info.disk_md5,
+        },
+        {
+            "$inc": {"occurrences": 1},
+            "$set": {"latest_time": datetime.now().isoformat()},
+            "$setOnInsert": {
+                "userid": user.id,
+                "osu_md5": user.client_info.osu_md5,
+                "adapters": user.client_info.adapters_md5,
+                "uninstall": user.client_info.uninstall_md5,
+                "disk": user.client_info.disk_md5,
+            },
+        },
+        upsert=True,
+    )
 
 
 def logout(user: User) -> None:

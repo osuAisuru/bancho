@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+import re
 import time
+from datetime import date
+from datetime import timedelta
 from typing import Any
 from typing import Literal
 from typing import Optional
@@ -22,6 +25,8 @@ from app.objects.match import MatchTeams
 from app.objects.match import MatchTeamTypes
 from app.objects.match import Slot
 from app.objects.match import SlotStatus
+from app.objects.user import ClientInfo
+from app.objects.user import OsuVersion
 
 if TYPE_CHECKING:
     from app.objects.user import User
@@ -86,6 +91,45 @@ def parse_login_data(data: bytes) -> LoginData:
     }
 
 
+OSU_VERSION = re.compile(
+    r"^b(?P<date>\d{8})(?:\.(?P<revision>\d))?"
+    r"(?P<stream>beta|cuttingedge|dev|tourney)?$",
+)
+DELTA_90_DAYS = timedelta(days=90)
+
+
+def parse_osu_version(osu_version: str) -> Optional[OsuVersion]:
+    ver_match = OSU_VERSION.match(osu_version)
+    if ver_match is None:
+        return None
+
+    osu_ver = OsuVersion(
+        date=date(
+            year=int(ver_match["date"][0:4]),
+            month=int(ver_match["date"][4:6]),
+            day=int(ver_match["date"][6:8]),
+        ),
+        revision=int(ver_match["revision"]) if ver_match["revision"] else None,
+        stream=ver_match["stream"] or "stable",
+    )
+
+    # TODO: check & cache latest version instead of allowing certain ranges
+    if osu_ver.date < (date.today() - DELTA_90_DAYS):
+        return None  # is this misleading?
+
+    return osu_ver
+
+
+def parse_adapters(adapters_str: str) -> Optional[tuple[list[str], bool]]:
+    running_under_wine = adapters_str == "runningunderwine"
+    adapters = [adapter for adapter in adapters_str[:-1].split(".")]
+
+    if not (running_under_wine or any(adapters)):
+        return None, running_under_wine
+
+    return adapters, running_under_wine
+
+
 @router.post("/")
 async def bancho_handler(
     request: Request,
@@ -131,6 +175,8 @@ async def bancho_handler(
 RESTRICTION_MESSAGE = "Your account is currently in restricted mode. Please check the website for more information!"
 WELCOME_MESSAGE = "Welcome to Aisuru!"
 
+# TODO: webhook some of these invalid requests/inputs passed thru login & packets
+
 
 async def login(
     body: bytes,
@@ -139,13 +185,41 @@ async def login(
     start = time.perf_counter_ns()
 
     login_data = parse_login_data(body)
-    if await app.usecases.user.fetch(name=login_data["username"]):
+
+    osu_version = parse_osu_version(login_data["osu_version"])
+    if not osu_version:
         return {
             "token": "no",
-            "body": app.packets.notification("You are already logged in!"),
+            "body": app.packets.version_update_forced() + app.packets.user_id(-2),
         }
 
-    user = await app.usecases.user.create_session(login_data, geoloc)
+    if logged_user := await app.usecases.user.fetch(name=login_data["username"]):
+        if not (osu_version.stream == "tourney" or logged_user.tourney):
+            if (time.time() - logged_user.latest_activity) > 10:
+                app.usecases.user.logout(logged_user)
+            else:
+                return {
+                    "token": "no",
+                    "body": app.packets.notification("You are already logged in!"),
+                }
+
+    adapters, running_under_wine = parse_adapters(login_data["adapters_str"])
+    if not adapters and not running_under_wine:
+        return {
+            "token": "no",
+            "body": app.packets.user_id(-5),  # not strictly an old client
+        }
+
+    client_info = ClientInfo(
+        client=osu_version,
+        osu_md5=login_data["osu_path_md5"],
+        adapters_md5=login_data["adapters_md5"],
+        uninstall_md5=login_data["uninstall_md5"],
+        disk_md5=login_data["disk_signature_md5"],
+        adapters=adapters,
+    )
+
+    user = await app.usecases.user.create_session(login_data, geoloc, client_info)
     if not user:
         return {
             "token": "no",
@@ -160,6 +234,42 @@ async def login(
             "token": "no",
             "body": app.packets.user_id(-1),
         }
+
+    await app.usecases.user.save_login(user)
+
+    hw_checks = {"userid": {"$ne": user.id}}
+    if running_under_wine:
+        hw_checks["uninstall"] = client_info.adapters_md5
+    else:
+        hw_checks |= {
+            "adapters": client_info.adapters_md5,
+            "uninstall": client_info.uninstall_md5,
+            "disk": client_info.disk_md5,
+        }
+
+    hashes_collection = app.state.services.database.client_hashes
+    hw_matches = await hashes_collection.find(hw_checks).to_list(length=None)
+
+    if hw_matches:  # TODO: restrict & webhook
+        hw_str = ", ".join(str(hw_match["userid"]) for hw_match in hw_matches)
+        log.warning(
+            f"{user.name} has tried to log in on matching hardware with users: {hw_str}",
+        )
+
+        return {
+            "token": "no",
+            "body": app.packets.user_id(-1)
+            + app.packets.notification(f"Please contact staff."),
+        }
+
+    if osu_version.stream == "tourney":
+        if not user.can_tourney:
+            return {
+                "token": "no",
+                "body": app.packets.user_id(-5),  # is this the error i want to use?
+            }
+        else:
+            user.tourney = True
 
     data = bytearray(app.packets.protocol_version(19))
     data += app.packets.user_id(user.id)
@@ -238,7 +348,7 @@ async def login(
     )
 
     log.info(
-        f"{user.name} logged in with osu! version {user.osu_version} from {user.geolocation.country.acronym.upper()} in {formatted_time}",
+        f"{user.name} logged in with osu! version {user.client_info.client} from {user.geolocation.country.acronym.upper()} in {formatted_time}",
     )
 
     await app.usecases.user.update_activity(user)
