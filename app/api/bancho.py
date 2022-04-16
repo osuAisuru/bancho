@@ -212,6 +212,7 @@ async def login(
 
     client_info = ClientInfo(
         client=osu_version,
+        running_under_wine=running_under_wine,
         osu_md5=login_data["osu_path_md5"],
         adapters_md5=login_data["adapters_md5"],
         uninstall_md5=login_data["uninstall_md5"],
@@ -237,19 +238,7 @@ async def login(
 
     await app.usecases.user.save_login(user)
 
-    hw_checks = {"userid": {"$ne": user.id}}
-    if running_under_wine:
-        hw_checks["uninstall"] = client_info.adapters_md5
-    else:
-        hw_checks |= {
-            "adapters": client_info.adapters_md5,
-            "uninstall": client_info.uninstall_md5,
-            "disk": client_info.disk_md5,
-        }
-
-    hashes_collection = app.state.services.database.client_hashes
-    hw_matches = await hashes_collection.find(hw_checks).to_list(length=None)
-
+    hw_matches = await app.usecases.user.find_hardware_matches(user)
     if hw_matches:  # TODO: restrict & webhook
         hw_str = ", ".join(str(hw_match["userid"]) for hw_match in hw_matches)
         log.warning(

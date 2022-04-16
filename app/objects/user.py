@@ -29,6 +29,7 @@ from app.typing import Message
 class ClientInfo:
     client: OsuVersion
 
+    running_under_wine: bool
     osu_md5: str
     adapters_md5: str
     uninstall_md5: str
@@ -64,6 +65,7 @@ class User:
     safe_name: str
 
     password_bcrypt: str
+    password_md5: str
     register_time: int
     latest_activity: int
     email: str
@@ -98,6 +100,16 @@ class User:
 
     def __repr__(self) -> str:
         return f"<{self.name} ({self.id})>"
+
+    @property
+    def basic_info(self) -> dict:
+        return {
+            "id": self.id,
+            "name": self.name,
+            "status": self.status.__dict__,
+            "login_time": self.login_time,
+            "latest_activity": self.latest_activity,
+        }
 
     @property
     def current_stats(self) -> Stats:

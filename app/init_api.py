@@ -66,10 +66,13 @@ def init_bancho() -> FastAPI:
 
     init_events(asgi_app)
 
-    import app.api
+    import app.api.bancho
+    import app.api.api
 
     for subdomain in ("c", "c4", "ce"):
-        asgi_app.host(f"{subdomain}.{app.config.SERVER_DOMAIN}", app.api.router)
+        asgi_app.host(f"{subdomain}.{app.config.SERVER_DOMAIN}", app.api.bancho.router)
+
+    asgi_app.host(f"cho_api.{app.config.SERVER_DOMAIN}", app.api.api.router)
 
     return asgi_app
 

@@ -60,6 +60,7 @@ async def create_session(
 
     return User(  # TODO: convert user to dataclass to simplify this
         **db_dict,
+        password_md5=login_data["password_md5"].decode(),
         geolocation=geolocation,
         utc_offset=login_data["utc_offset"],
         status=Status.default(),
@@ -125,6 +126,7 @@ async def fetch(**kwargs) -> Optional[User]:
 
         return User(  # TODO: convert user to dataclass to simplify this
             **db_dict,
+            password_md5=None,
             geolocation=Geolocation(country=Country.from_iso(db_user.country)),
             utc_offset=0,
             status=Status.default(),
@@ -178,6 +180,26 @@ async def save_login(user: User) -> None:
         },
         upsert=True,
     )
+
+
+async def find_hardware_matches(user: User) -> Optional[list[int]]:
+    hw_checks = {"userid": {"$ne": user.id}}
+    if user.client_info.running_under_wine:
+        hw_checks["uninstall"] = user.client_info.adapters_md5
+    else:
+        hw_checks |= {
+            "adapters": user.client_info.adapters_md5,
+            "uninstall": user.client_info.uninstall_md5,
+            "disk": user.client_info.disk_md5,
+        }
+
+    hashes_collection = app.state.services.database.client_hashes
+    hw_matches = await hashes_collection.find(hw_checks).to_list(length=None)
+
+    if hw_matches:
+        return hw_matches
+
+    return None
 
 
 def logout(user: User) -> None:
