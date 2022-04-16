@@ -41,6 +41,9 @@ PacketHandler = Callable[
 ]  # TODO: type-hint packet data
 
 
+PubsubHandler = Callable[[str], Awaitable[None]]
+
+
 def read_int(data: bytearray, signed: bool = True) -> int:
     return int.from_bytes(data, "little", signed=signed)
 
