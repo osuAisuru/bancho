@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+from typing import TypedDict
 
 import aioredis.client
 import orjson
@@ -35,10 +36,15 @@ async def handle_status_update(payload: str) -> None:
     log.info(f"Updated {user}'s status from Redis")
 
 
+class RedisMessage(TypedDict):
+    channel: bytes
+    data: bytes
+
+
 async def loop_pubsubs(pubsub: aioredis.client.PubSub) -> None:
     while True:
         try:
-            message = await pubsub.get_message(
+            message: RedisMessage = await pubsub.get_message(
                 ignore_subscribe_messages=True,
                 timeout=1.0,
             )
@@ -56,4 +62,4 @@ async def initialise_pubsubs() -> None:
     await pubsub.subscribe(*[channel for channel in app.state.PUBSUBS.keys()])
 
     pubsub_loop = asyncio.create_task(loop_pubsubs(pubsub))
-    app.state.sessions.tasks.add(pubsub_loop)
+    app.state.tasks.add(pubsub_loop)

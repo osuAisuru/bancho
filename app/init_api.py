@@ -34,7 +34,7 @@ def init_events(asgi_app: FastAPI) -> None:
     @asgi_app.on_event("shutdown")
     async def on_shutdown() -> None:
         await app.state.services.redis.close()
-        await app.state.sessions.cancel_tasks()
+        await app.state.cancel_tasks()
 
         log.info("Bancho has stopped!")
 

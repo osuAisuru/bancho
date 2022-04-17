@@ -109,6 +109,8 @@ class User:
             "status": self.status.__dict__,
             "login_time": self.login_time,
             "latest_activity": self.latest_activity,
+            "geolocation": self.geolocation.__dict__,
+            "friends": self.friends,
         }
 
     @property
