@@ -44,3 +44,11 @@ async def populate_sessions() -> None:
             auto_join=False,
         ),
     )
+
+    app.state.sessions.channels.append(
+        Channel(
+            name="#announcements",
+            topic="View announcements and first places!",
+            auto_join=True,
+        ),
+    )

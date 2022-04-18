@@ -267,11 +267,7 @@ async def login(
     )
 
     for channel in app.state.sessions.channels:
-        if (
-            not channel.auto_join
-            or not channel.has_permission(user.privileges)
-            or channel.name == "#lobby"
-        ):
+        if not channel.has_permission(user.privileges) or channel.name == "#lobby":
             continue
 
         channel_info_packet = app.packets.channel_info(channel)
@@ -280,6 +276,9 @@ async def login(
         for target in app.state.sessions.users:
             if channel.has_permission(target.privileges):
                 target.enqueue(channel_info_packet)
+
+        if channel.auto_join:
+            app.usecases.user.join_channel(user, channel)
 
     data += app.packets.channel_info_end()
     data += app.packets.menu_icon(

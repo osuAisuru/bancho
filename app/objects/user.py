@@ -111,6 +111,7 @@ class User:
             "latest_activity": self.latest_activity,
             "geolocation": self.geolocation.__dict__,
             "friends": self.friends,
+            "privileges": self.privileges.value,
         }
 
     @property

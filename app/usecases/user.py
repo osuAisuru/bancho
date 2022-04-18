@@ -8,6 +8,8 @@ from typing import Optional
 from typing import Union
 from uuid import uuid4
 
+import orjson
+
 import app.models
 import app.packets
 import app.state
@@ -317,6 +319,11 @@ async def set_privileges(user: User, privileges: Privileges) -> None:
         {"$set": {"privileges": privileges}},
     )
 
+    await app.state.services.redis.publish(
+        "user-privileges",
+        orjson.dumps({"id": user.id, "privileges": privileges.value}),
+    )
+
 
 async def add_privilege(user: User, privilege: Privileges) -> None:
     await set_privileges(user, user.privileges | privilege)
@@ -338,12 +345,12 @@ def join_channel(user: User, channel: Channel) -> bool:
 
     channel_info_packet = app.packets.channel_info(channel)
     if channel.instance:
-        for user in channel.users:
-            user.enqueue(channel_info_packet)
+        for target in channel.users:
+            target.enqueue(channel_info_packet)
     else:
-        for user in app.state.sessions.users:
-            if channel.has_permission(user.privileges):
-                user.enqueue(channel_info_packet)
+        for target in app.state.sessions.users:
+            if channel.has_permission(target.privileges):
+                target.enqueue(channel_info_packet)
 
     log.info(f"{user} joined {channel}")
     return True
@@ -429,11 +436,15 @@ def remove_spectator(user: User, other_user: User) -> None:
 
 
 async def update_activity(user: User) -> None:
+    latest = int(time.time())
+
     user_collection = app.state.services.database.users
     await user_collection.update_one(
         {"id": user.id},
-        {"$set": {"latest_activity": int(time.time())}},
+        {"$set": {"latest_activity": latest}},
     )
+
+    user.latest_activity = latest
 
 
 def update_status(user: User, action_struct: app.models.ChangeActionStructure) -> None:
@@ -482,3 +493,59 @@ async def remove_friend(user: User, other_user: User) -> None:
     )
 
     log.info(f"{user} removed {other_user} from their friends list")
+
+
+async def handle_restriction(user: User) -> None:
+    for mode in Mode:
+        leaderboard_str = f"aisuru:leaderboard:{mode.value}"
+        country_leaderboard_str = (
+            f"{leaderboard_str}:{user.geolocation.country.acronym}"
+        )
+
+        stats = user.stats[mode]
+        stats.global_rank = 0
+        stats.country_rank = 0
+
+        await app.state.services.redis.zrem(leaderboard_str, user.id)
+        await app.state.services.redis.zrem(country_leaderboard_str, user.id)
+
+    logout(user)  # reconnect them xd
+
+
+async def handle_unrestriction(user: User) -> None:
+    for mode in Mode:
+        leaderboard_str = f"aisuru:leaderboard:{mode.value}"
+        country_leaderboard_str = (
+            f"{leaderboard_str}:{user.geolocation.country.acronym}"
+        )
+
+        stats = user.stats[mode]
+
+        await app.state.services.redis.zadd(leaderboard_str, {user.id: stats.pp})
+        await app.state.services.redis.zadd(
+            country_leaderboard_str,
+            {user.id: stats.pp},
+        )
+
+        global_rank = await app.state.services.redis.zrevrank(
+            leaderboard_str,
+            user.id,
+        )
+        if global_rank is not None:
+            global_rank += 1
+        else:
+            global_rank = 0
+
+        country_rank = await app.state.services.redis.zrevrank(
+            country_leaderboard_str,
+            user.id,
+        )
+        if country_rank is not None:
+            country_rank += 1
+        else:
+            country_rank = 0
+
+        stats.global_rank = global_rank
+        stats.country_rank = country_rank
+
+    logout(user)  # reconnect them xd
