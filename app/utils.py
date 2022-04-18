@@ -5,6 +5,7 @@ import inspect
 from typing import Any
 
 import app
+import log
 
 
 def make_safe_name(name: str) -> str:
@@ -31,7 +32,7 @@ def get_class_from_module(module_name: str) -> Any:
     try:
         module = importlib.import_module(".".join(module_name_split[:-1]))
     except ValueError:
-        print(f"Failed getting {module_name}")
+        log.error(f"Failed getting {module_name}")
         return
 
     structure_class = getattr(module, module_name_split[-1])

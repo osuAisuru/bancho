@@ -139,6 +139,35 @@ async def handle_private_message(payload: str) -> None:
     )
 
 
+class Notification(TypedDict):
+    id: int
+    message: str
+
+
+@register_pubsub("user-notification")
+async def handle_notification(payload: str) -> None:
+    info: Notification = orjson.loads(payload)
+
+    if not (user := app.usecases.user.cache_fetch(id=info["id"])):
+        return
+
+    user.enqueue(app.packets.notification(info["message"]))
+
+
+class Logout(TypedDict):
+    id: int
+
+
+@register_pubsub("user-logout")
+async def handle_logout(payload: str) -> None:
+    info: Logout = orjson.loads(payload)
+
+    if not (user := app.usecases.user.cache_fetch(id=info["id"])):
+        return
+
+    app.usecases.user.logout(user)
+
+
 class RedisMessage(TypedDict):
     channel: bytes
     data: bytes

@@ -247,7 +247,7 @@ def join_match(user: User, match: Match, password: str) -> bool:
         slot_id = 0
 
     if not join_channel(user, match.chat):
-        print(f"{user} failed to join multi channel {match.chat}")
+        log.warning(f"{user} failed to join multi channel {match.chat}")
         return False
 
     if (lobby := app.state.sessions.channels["#lobby"]) in user.channels:
@@ -274,7 +274,6 @@ def leave_match(user: User) -> None:
         return
 
     slot = user.match.get_slot(user)
-    print(user)
     assert slot is not None
 
     if slot.status == SlotStatus.LOCKED:
@@ -316,7 +315,7 @@ async def set_privileges(user: User, privileges: Privileges) -> None:
     user_collection = app.state.services.database.users
     await user_collection.update_one(
         {"id": user.id},
-        {"$set": {"privileges": privileges}},
+        {"$set": {"privileges": privileges.value}},
     )
 
     await app.state.services.redis.publish(

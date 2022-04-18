@@ -452,7 +452,7 @@ async def send_public_message(
 
 @register_packet(app.packets.Packets.OSU_LOGOUT, allow_restricted=True)
 async def logout(user: "User") -> None:
-    if int(time.time()) - user.login_time < 1:
+    if (time.time() - user.login_time) < 1:
         return  # just osu things
 
     app.usecases.user.logout(user)
