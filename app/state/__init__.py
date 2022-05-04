@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+from typing import Any
 
 import log
 from . import cache
@@ -15,6 +16,7 @@ RESTRICTED_PACKETS: dict[int, PacketHandler] = {}
 PUBSUBS: dict[str, PubsubHandler] = {}
 
 tasks: set[asyncio.Task] = set()
+commands: dict[str, Any] = {}
 
 
 async def cancel_tasks() -> None:

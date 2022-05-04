@@ -18,5 +18,7 @@ MAIN_MENU_CLICK_URL: str = cfg("MAIN_MENU_CLICK_URL")
 
 API_SECRET: str = cfg("API_SECRET")
 
+OSU_API_KEY: Secret = cfg("OSU_API_KEY", cast=Secret)
+
 # do NOT change
 VERSION = "0.1.0"

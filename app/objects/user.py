@@ -15,6 +15,7 @@ from app.constants.mode import Mode
 from app.constants.privileges import BanchoPrivileges
 from app.constants.privileges import Privileges
 from app.constants.status import Status
+from app.objects.beatmap import Beatmap
 from app.objects.channel import Channel
 
 if TYPE_CHECKING:
@@ -97,6 +98,7 @@ class User:
     tourney: bool
 
     client_info: Optional[ClientInfo]
+    last_np: Optional[Beatmap] = None
 
     def __repr__(self) -> str:
         return f"<{self.name} ({self.id})>"

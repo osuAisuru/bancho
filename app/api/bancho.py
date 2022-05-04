@@ -36,11 +36,19 @@ import app.packets
 import app.state
 import app.models
 import app.config
+import app.commands
 import app.utils
 from app.state.services import Geolocation
 from app.typing import LoginData, Message, PacketHandler, i32
 
 router = APIRouter(tags=["Bancho API"])
+
+NOW_PLAYING_RGX = re.compile(
+    r"^\x01ACTION is (?:playing|editing|watching|listening to) "
+    rf"\[https://osu\.(?:{re.escape(app.config.SERVER_DOMAIN)}|ppy\.sh)/beatmapsets/(?P<sid>\d{{1,10}})#/?(?:osu|taiko|fruits|mania)?/(?P<bid>\d{{1,10}})/? .+\]"
+    r"(?: <(?P<mode_vn>Taiko|CatchTheBeat|osu!mania)>)?"
+    r"(?P<mods>(?: (?:-|\+|~|\|)\w+(?:~|\|)?)+)?\x01$",
+)
 
 
 @router.get("/")
@@ -442,10 +450,32 @@ async def send_public_message(
         log.warning(f"{user} tried to write in {recipient} without permission")
         return
 
-    # TODO: commands
-
     target_channel.send(msg, user)
     await app.usecases.user.update_activity(user)
+
+    cmd = None
+    if msg.startswith("!"):
+        cmd = await app.commands.handle_command(user, msg)
+
+    if cmd:
+        target_channel.send(cmd, app.state.sessions.bot)
+    else:
+        if r_match := NOW_PLAYING_RGX.match(msg):
+            bmap = await app.usecases.beatmap.fetch_by_id(int(r_match["bid"]))
+
+            if bmap:
+                user.last_np = bmap
+                target_channel.selective_send(
+                    "This is a note that your /np has been seen, the response is not implemented yet.",
+                    app.state.sessions.bot,
+                    [user],
+                )
+            else:
+                target_channel.selective_send(
+                    "This is a note that your /np failed and the response is not implemented yet.",
+                    app.state.sessions.bot,
+                    [user],
+                )
 
     log.info(f"{user} sent a message to {recipient}: {msg}", file="logs/chat.log")
 
@@ -579,10 +609,30 @@ async def private_message(
         )
         return
 
-    # TODO: commands
-
     target.receive_message(msg, user)
     await app.usecases.user.update_activity(user)
+
+    cmd = None
+    if msg.startswith("!"):
+        cmd = await app.commands.handle_command(user, msg)
+
+    if cmd:
+        user.receive_message(cmd, app.state.sessions.bot)
+    else:
+        if r_match := NOW_PLAYING_RGX.match(msg):
+            bmap = await app.usecases.beatmap.fetch_by_id(int(r_match["bid"]))
+
+            if bmap:
+                user.last_np = bmap
+                user.receive_message(
+                    "This is a note that your /np has been seen, the response is not implemented yet.",
+                    app.state.sessions.bot,
+                )
+            else:
+                user.receive_message(
+                    "This is a note that your /np failed and the response is not implemented yet.",
+                    app.state.sessions.bot,
+                )
 
     log.info(f"{user} sent a message to {target}: {msg}", file="logs/chat.log")
 
