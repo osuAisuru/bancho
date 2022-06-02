@@ -50,7 +50,13 @@ async def create_session(
 
     db_user = DBUser(**user)
     db_dict = db_user.__dict__
-    db_dict.pop("country")
+
+    db_country = db_dict.pop("country")
+    if not db_country or db_country == "xx":
+        await user_collection.update_one(
+            {"id": db_user.id},
+            {"$set": {"country": geolocation.country.acronym}},
+        )
 
     stats = {}
     for mode in Mode:

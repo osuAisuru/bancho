@@ -46,7 +46,7 @@ async def rank_command(user: User, args: list[str]) -> None:
         return "Invalid rank type! (set/map)"
 
     new_status = RankedStatus.from_str(new_status_type)
-    if not new_status:
+    if new_status is None:
         return "Invalid status! (rank/unrank/love/unlove)"
 
     rank_type = "set" if not set_or_map else set_or_map
