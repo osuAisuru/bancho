@@ -3,6 +3,7 @@ from __future__ import annotations
 import re
 import time
 from datetime import date
+from datetime import datetime
 from datetime import timedelta
 from typing import Any
 from typing import Literal
@@ -183,6 +184,11 @@ async def bancho_handler(
 RESTRICTION_MESSAGE = "Your account is currently in restricted mode. Please check the website for more information!"
 WELCOME_MESSAGE = "Welcome to Aisuru!"
 
+FROZEN_MESSAGE = (
+    "Your account is currently frozen. If you do not provide a liveplay by {pretty_time}, you will be automatically restricted. "
+    "Before creating a liveplay, please contact a staff member for further instructions."
+)
+
 # TODO: webhook some of these invalid requests/inputs passed thru login & packets
 
 
@@ -312,6 +318,20 @@ async def login(
             Message(
                 app.state.sessions.bot.name,
                 RESTRICTION_MESSAGE,
+                user.name,
+                app.state.sessions.bot.id,
+            ),
+        )
+
+    if user.frozen:
+        pretty_time = datetime.fromtimestamp(user.freeze_timer).strftime(
+            "%Y-%m-%d %H:%M:%S",
+        )
+
+        data += app.packets.send_message(
+            Message(
+                app.state.sessions.bot.name,
+                FROZEN_MESSAGE.format(pretty_time=pretty_time),
                 user.name,
                 app.state.sessions.bot.id,
             ),

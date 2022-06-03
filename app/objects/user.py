@@ -100,6 +100,8 @@ class User:
     client_info: Optional[ClientInfo]
     last_np: Optional[Beatmap] = None
 
+    freeze_timer: Optional[int] = 0
+
     def __repr__(self) -> str:
         return f"<{self.name} ({self.id})>"
 
@@ -163,6 +165,10 @@ class User:
     @property
     def banned(self) -> bool:
         return self.privileges & Privileges.BANNED
+
+    @property
+    def frozen(self) -> bool:
+        return self.privileges & Privileges.FROZEN
 
     def enqueue(self, data: Union[bytearray, bytes]) -> None:
         self.queue += data

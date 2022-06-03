@@ -103,6 +103,12 @@ async def handle_privileges_change(payload: str) -> None:
     if not old_priv & Privileges.RESTRICTED and user.restricted:
         await app.usecases.user.handle_restriction(user)
 
+    if old_priv & Privileges.FROZEN and not user.frozen:
+        await app.usecases.user.handle_unfreeze(user)
+
+    if not old_priv & Privileges.FROZEN and user.frozen:
+        await app.usecases.user.handle_freeze(user)
+
     log.info(f"Updated privileges for user {user}")
 
 

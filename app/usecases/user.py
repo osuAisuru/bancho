@@ -4,6 +4,7 @@ import copy
 import time
 from datetime import date
 from datetime import datetime
+from datetime import timedelta
 from typing import Optional
 from typing import Union
 from uuid import uuid4
@@ -554,3 +555,142 @@ async def handle_unrestriction(user: User) -> None:
         stats.country_rank = country_rank
 
     logout(user)  # reconnect them xd
+
+
+async def handle_freeze(user: User) -> None:
+    user_collection = app.state.services.database.users
+    _user = await user_collection.find_one({"id": user.id})
+
+    user.freeze_timer = _user["freeze_timer"]
+
+    logout(user)  # reconnect them xd
+
+
+async def handle_unfreeze(user: User) -> None:
+    user.freeze_timer = 0
+    logout(user)  # reconnect them xd
+
+
+async def set_privileges(user: User, privileges: Privileges) -> None:
+    user.privileges = privileges
+
+    user_collection = app.state.services.database.users
+    await user_collection.update_one(
+        {"id": user.id},
+        {"$set": {"privileges": privileges}},
+    )
+
+    await app.state.services.redis.publish(
+        "user-privileges",
+        orjson.dumps({"id": user.id, "privileges": privileges.value}),
+    )
+
+
+async def add_privilege(user: User, privilege: Privileges) -> None:
+    await set_privileges(user, user.privileges | privilege)
+
+
+async def remove_privilege(user: User, privilege: Privileges) -> None:
+    await set_privileges(user, user.privileges & ~privilege)
+
+
+async def restrict(user: User, reason: str, sender: Optional[User] = None) -> None:
+    if not sender:
+        sender = app.state.sessions.bot
+
+    logs_collection = app.state.services.database.logs
+    await logs_collection.update_one(
+        {"id": user.id},
+        {
+            "$addToSet": {
+                "actions": {
+                    "action": "restrict",
+                    "sender": sender.name,
+                    "info": reason,
+                },
+            },
+        },
+    )
+
+    await add_privilege(user, Privileges.RESTRICTED)
+
+
+async def unrestrict(user: User, reason: str, sender: Optional[User] = None) -> None:
+    if not sender:
+        sender = app.state.sessions.bot
+
+    logs_collection = app.state.services.database.logs
+    await logs_collection.update_one(
+        {"id": user.id},
+        {
+            "$addToSet": {
+                "actions": {
+                    "action": "unrestrict",
+                    "sender": sender.name,
+                    "info": reason,
+                },
+            },
+        },
+    )
+
+    await remove_privilege(user, Privileges.RESTRICTED)
+
+
+async def freeze(user: User, reason: str, sender: Optional[User] = None) -> None:
+    if not sender:
+        sender = app.state.sessions.bot
+
+    logs_collection = app.state.services.database.logs
+    await logs_collection.update_one(
+        {"id": user.id},
+        {
+            "$addToSet": {
+                "actions": {
+                    "action": "freeze",
+                    "sender": sender.name,
+                    "info": reason,
+                },
+            },
+        },
+    )
+
+    user.freeze_timer = datetime.now() + timedelta(days=7)
+    users_collection = app.state.services.database.users
+    await users_collection.update_one(
+        {"id": user.id},
+        {
+            "$set": {"freeze_timer": user.freeze_timer},
+        },
+    )
+
+    await add_privilege(user, Privileges.FROZEN)
+
+
+async def unfreeze(user: User, reason: str, sender: Optional[User] = None) -> None:
+    if not sender:
+        sender = app.state.sessions.bot
+
+    logs_collection = app.state.services.database.logs
+    await logs_collection.update_one(
+        {"id": user.id},
+        {
+            "$addToSet": {
+                "actions": {
+                    "action": "unfreeze",
+                    "sender": sender.name,
+                    "info": reason,
+                },
+            },
+        },
+    )
+
+    user.freeze_timer = 0
+    users_collection = app.state.services.database.users
+    await users_collection.update_one(
+        {"id": user.id},
+        {
+            "$set": {"freeze_timer": user.freeze_timer},
+        },
+    )
+
+    await remove_privilege(user, Privileges.FROZEN)
