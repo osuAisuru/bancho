@@ -486,13 +486,7 @@ async def send_public_message(
             if bmap:
                 user.last_np = bmap
                 target_channel.selective_send(
-                    "This is a note that your /np has been seen, the response is not implemented yet.",
-                    app.state.sessions.bot,
-                    [user],
-                )
-            else:
-                target_channel.selective_send(
-                    "This is a note that your /np failed and the response is not implemented yet.",
+                    await app.usecases.performance.np_msg(bmap, Mods.NOMOD),
                     app.state.sessions.bot,
                     [user],
                 )
@@ -645,12 +639,7 @@ async def private_message(
             if bmap:
                 user.last_np = bmap
                 user.receive_message(
-                    "This is a note that your /np has been seen, the response is not implemented yet.",
-                    app.state.sessions.bot,
-                )
-            else:
-                user.receive_message(
-                    "This is a note that your /np failed and the response is not implemented yet.",
+                    await app.usecases.performance.np_msg(bmap, Mods.NOMOD),
                     app.state.sessions.bot,
                 )
 

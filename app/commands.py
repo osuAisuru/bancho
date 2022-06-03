@@ -1,12 +1,12 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Optional
 
 import orjson
 
 import app.state
 import app.usecases
+from app.constants.mods import Mods
 from app.constants.privileges import Privileges
 from app.objects.beatmap import RankedStatus
 from app.objects.user import User
@@ -31,6 +31,20 @@ def register_command(
                 }
 
     return decorator
+
+
+@register_command("!with")
+async def with_command(user: User, args: list[str]) -> str:
+    if not (bmap := user.last_np):
+        return "You must /np a map first!"
+
+    if len(args) < 1:
+        return "You must provide mods!"
+
+    mod_str = args[0].removeprefix("+")
+    mods = Mods.convert_str(mod_str)
+
+    return await app.usecases.performance.np_msg(bmap, mods)
 
 
 @register_command("!map", aliases=["!m"], privileges=Privileges.NOMINATOR)
